@@ -55,6 +55,19 @@ TEST_CASE("observer trace capture enforces record capacity and preserves copied 
     CHECK_EQ(record.RawPose[1], '}');
 }
 
+TEST_CASE("observer trace capture accounts for invalid identity and payload drops separately") {
+    beammp::observer::ObserverTraceCapture capture;
+    capture.SetEnabledForTest(true);
+
+    CHECK_FALSE(capture.TryCaptureStoredPose(-1, 11, "{}", 1));
+    CHECK_FALSE(capture.TryCaptureStoredPose(7, -1, "{}", 2));
+    CHECK_FALSE(capture.TryCaptureStoredPose(7, 11, "", 3));
+
+    CHECK_EQ(capture.InvalidIds(), 2);
+    CHECK_EQ(capture.InvalidPayloads(), 1);
+    CHECK_EQ(capture.Oversize(), 0);
+}
+
 TEST_CASE("observer trace capture retains a newest sentinel after deterministic saturation") {
     beammp::observer::ObserverTraceCapture capture;
     capture.SetEnabledForTest(true);

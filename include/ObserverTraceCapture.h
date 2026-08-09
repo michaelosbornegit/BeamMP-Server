@@ -51,8 +51,12 @@ public:
         if (!mEnabled.load(std::memory_order_acquire)) {
             return false;
         }
-        if (playerId < 0 || vehicleId < 0 || rawPose.empty()) {
-            mInvalid.fetch_add(1, std::memory_order_relaxed);
+        if (playerId < 0 || vehicleId < 0) {
+            mInvalidId.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
+        if (rawPose.empty()) {
+            mInvalidPayload.fetch_add(1, std::memory_order_relaxed);
             return false;
         }
         if (rawPose.size() > kRawPoseCapacity) {
@@ -108,8 +112,9 @@ public:
             mPending.load(std::memory_order_relaxed),
         };
     }
-    [[nodiscard]] bool IsLockFree() const noexcept { return mQueue.is_lock_free() && mEnabled.is_lock_free() && mSequence.is_lock_free() && mInvalid.is_lock_free() && mOversize.is_lock_free() && mAccepted.is_lock_free() && mPending.is_lock_free() && mEvictedOldest.is_lock_free() && mContentionDrop.is_lock_free() && mDequeued.is_lock_free(); }
-    [[nodiscard]] std::uint64_t Invalid() const noexcept { return mInvalid.load(std::memory_order_relaxed); }
+    [[nodiscard]] bool IsLockFree() const noexcept { return mQueue.is_lock_free() && mEnabled.is_lock_free() && mSequence.is_lock_free() && mInvalidId.is_lock_free() && mInvalidPayload.is_lock_free() && mOversize.is_lock_free() && mAccepted.is_lock_free() && mPending.is_lock_free() && mEvictedOldest.is_lock_free() && mContentionDrop.is_lock_free() && mDequeued.is_lock_free(); }
+    [[nodiscard]] std::uint64_t InvalidIds() const noexcept { return mInvalidId.load(std::memory_order_relaxed); }
+    [[nodiscard]] std::uint64_t InvalidPayloads() const noexcept { return mInvalidPayload.load(std::memory_order_relaxed); }
     [[nodiscard]] std::uint64_t Oversize() const noexcept { return mOversize.load(std::memory_order_relaxed); }
     [[nodiscard]] std::uint64_t Accepted() const noexcept { return mAccepted.load(std::memory_order_relaxed); }
     [[nodiscard]] std::uint64_t EvictedOldest() const noexcept { return mEvictedOldest.load(std::memory_order_relaxed); }
@@ -119,7 +124,8 @@ private:
     boost::lockfree::queue<RawStoredPoseV1, boost::lockfree::capacity<kQueueCapacity>> mQueue {};
     std::atomic<bool> mEnabled { false };
     std::atomic<std::uint64_t> mSequence {};
-    std::atomic<std::uint64_t> mInvalid {};
+    std::atomic<std::uint64_t> mInvalidId {};
+    std::atomic<std::uint64_t> mInvalidPayload {};
     std::atomic<std::uint64_t> mOversize {};
     std::atomic<std::uint64_t> mAccepted {};
     std::atomic<std::size_t> mPending {};
