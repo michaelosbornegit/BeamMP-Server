@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string_view>
 #include <type_traits>
 
 #include <boost/lockfree/queue.hpp>
@@ -37,12 +38,15 @@ public:
     static constexpr std::size_t kRawPoseCapacity = 1024;
     static constexpr std::size_t kQueueCapacity = 4096;
 
-    [[nodiscard]] bool TryCaptureStoredPose(std::int32_t playerId, std::int32_t vehicleId, const char* rawPose, std::size_t size, std::uint64_t acceptedMonoNs) noexcept {
+    [[nodiscard]] bool TryCaptureStoredPose(std::int32_t playerId, std::int32_t vehicleId, const std::string_view rawPose, std::uint64_t acceptedMonoNs) noexcept {
         if (!mEnabled.load(std::memory_order_acquire)) {
-            mDisabled.fetch_add(1, std::memory_order_relaxed);
             return false;
         }
-        if (playerId < 0 || vehicleId < 0 || rawPose == nullptr || size == 0 || size > kRawPoseCapacity) {
+        if (playerId < 0 || vehicleId < 0 || rawPose.empty()) {
+            mInvalid.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
+        if (rawPose.size() > kRawPoseCapacity) {
             mOversize.fetch_add(1, std::memory_order_relaxed);
             return false;
         }
@@ -52,8 +56,8 @@ public:
         record.ProducerSequence = mSequence.fetch_add(1, std::memory_order_relaxed);
         record.PlayerId = playerId;
         record.VehicleId = vehicleId;
-        record.PayloadSize = static_cast<std::uint16_t>(size);
-        std::memcpy(record.RawPose.data(), rawPose, size);
+        record.PayloadSize = static_cast<std::uint16_t>(rawPose.size());
+        std::memcpy(record.RawPose.data(), rawPose.data(), rawPose.size());
 
         if (mQueue.push(record)) {
             mAccepted.fetch_add(1, std::memory_order_relaxed);
@@ -61,10 +65,12 @@ public:
         }
 
         RawStoredPoseV1 discarded {};
-        if (mQueue.pop(discarded) && mQueue.push(record)) {
+        if (mQueue.pop(discarded)) {
             mEvictedOldest.fetch_add(1, std::memory_order_relaxed);
-            mAccepted.fetch_add(1, std::memory_order_relaxed);
-            return true;
+            if (mQueue.push(record)) {
+                mAccepted.fetch_add(1, std::memory_order_relaxed);
+                return true;
+            }
         }
         mContentionDrop.fetch_add(1, std::memory_order_relaxed);
         return false;
@@ -72,8 +78,8 @@ public:
 
     void SetEnabledForTest(bool enabled) noexcept { mEnabled.store(enabled, std::memory_order_release); }
     [[nodiscard]] bool TryPopForTest(RawStoredPoseV1& output) noexcept { return mQueue.pop(output); }
-    [[nodiscard]] bool IsLockFree() const noexcept { return mQueue.is_lock_free(); }
-    [[nodiscard]] std::uint64_t Disabled() const noexcept { return mDisabled.load(std::memory_order_relaxed); }
+    [[nodiscard]] bool IsLockFree() const noexcept { return mQueue.is_lock_free() && mEnabled.is_lock_free() && mSequence.is_lock_free() && mInvalid.is_lock_free() && mOversize.is_lock_free() && mAccepted.is_lock_free() && mEvictedOldest.is_lock_free() && mContentionDrop.is_lock_free(); }
+    [[nodiscard]] std::uint64_t Invalid() const noexcept { return mInvalid.load(std::memory_order_relaxed); }
     [[nodiscard]] std::uint64_t Oversize() const noexcept { return mOversize.load(std::memory_order_relaxed); }
     [[nodiscard]] std::uint64_t Accepted() const noexcept { return mAccepted.load(std::memory_order_relaxed); }
     [[nodiscard]] std::uint64_t EvictedOldest() const noexcept { return mEvictedOldest.load(std::memory_order_relaxed); }
@@ -83,7 +89,7 @@ private:
     boost::lockfree::queue<RawStoredPoseV1, boost::lockfree::capacity<kQueueCapacity>> mQueue {};
     std::atomic<bool> mEnabled { false };
     std::atomic<std::uint64_t> mSequence {};
-    std::atomic<std::uint64_t> mDisabled {};
+    std::atomic<std::uint64_t> mInvalid {};
     std::atomic<std::uint64_t> mOversize {};
     std::atomic<std::uint64_t> mAccepted {};
     std::atomic<std::uint64_t> mEvictedOldest {};

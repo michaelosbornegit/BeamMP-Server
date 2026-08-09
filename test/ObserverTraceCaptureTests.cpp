@@ -9,8 +9,7 @@ TEST_CASE("observer trace capture is runtime disabled by default") {
     std::array<char, 1025> payload {};
 
     CHECK(capture.IsLockFree());
-    CHECK_FALSE(capture.TryCaptureStoredPose(7, 11, payload.data(), 2, 101));
-    CHECK_EQ(capture.Disabled(), 1);
+    CHECK_FALSE(capture.TryCaptureStoredPose(7, 11, std::string_view(payload.data(), 2), 101));
     beammp::observer::RawStoredPoseV1 empty {};
     CHECK_FALSE(capture.TryPopForTest(empty));
 }
@@ -22,8 +21,8 @@ TEST_CASE("observer trace capture enforces record capacity and preserves copied 
     payload[1] = '}';
     capture.SetEnabledForTest(true);
 
-    CHECK(capture.TryCaptureStoredPose(7, 11, payload.data(), 1024, 102));
-    CHECK_FALSE(capture.TryCaptureStoredPose(7, 11, payload.data(), 1025, 103));
+    CHECK(capture.TryCaptureStoredPose(7, 11, std::string_view(payload.data(), 1024), 102));
+    CHECK_FALSE(capture.TryCaptureStoredPose(7, 11, std::string_view(payload.data(), 1025), 103));
     CHECK_EQ(capture.Oversize(), 1);
 
     beammp::observer::RawStoredPoseV1 record {};
