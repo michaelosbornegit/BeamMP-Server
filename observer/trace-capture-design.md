@@ -1,0 +1,44 @@
+# Test-only accepted-pose trace-capture implementation boundary
+
+**Status:** prerequisite gate only — no writer, post-store hook, runtime command, server configuration, image, or deployment is authorized by this document.
+
+## Pinned implementation base
+
+| Item | Value |
+|---|---|
+| Upstream `minor` and merge base | `176de6b5a5e1858ddeca9705a6ca5f8a717c0ae7` (BeamMP Server 3.9.3) |
+| Observer implementation branch | `feat/observer-trace-capture` |
+| Branch checkpoint at creation | `3daa9f04a57dec6e8e04d59c3f0d0c6368e32f72` |
+| Upstream `minor` remote verification | still `176de6b5a5e1858ddeca9705a6ca5f8a717c0ae7` on 2026-08-09 |
+| Private observer documentation base | `beammp-observer` `main` at `624ac45` |
+
+The branch has not modified `src/TServer.cpp`, `src/Client.cpp`, or `src/TNetwork.cpp` relative to the pinned base. Any future hook work must re-check this baseline, record the exact tested compiler/image provenance, and stop if the intended isolated test server cannot be mapped to this source. No Server4 state was inspected for this checkpoint.
+
+## Non-negotiable producer boundary
+
+The only candidate hook is immediately **after** `TClient::SetCarPosition` returns in `TServer::HandlePosition`. It must pass authenticated `c.GetID()`, the parsed vehicle ID, the already-extracted raw pose suffix, and a post-store monotonic timestamp. It must be compiled only under `BEAMMP_OBSERVER_TRACE_TEST_ONLY` and excluded by default.
+
+Producer calls must be `noexcept`, bounded to one queue push, at most one eviction pop, and one retry push. They must add no heap allocation, locks, waits, I/O, JSON parsing, logging, formatting, network activity, callbacks, or packet/store mutation. The runtime default is disabled; its kill switch is a release-store to the producer-visible atomic.
+
+The producer record contains only monotonic timing, dense-independent numeric raw IDs, payload length, and at most 1,024 bytes of the pose suffix. Oversize/invalid records drop without changing BeamMP behavior. The queue is fixed-capacity MPSC and must be proven lock-free together with every producer-visible atomic on the target image; no mutex fallback is permitted.
+
+## Privacy and writer constraints
+
+A future worker is the sole parser/writer. It may emit only relative monotonic time, trace-local dense player/vehicle IDs, and finite allowlisted `pos[3]`, `rot[4]`, `vel[3]`, `rvel[3]`, plus optional finite `tim`. It must not preserve raw IDs, names, keys, IPs, authentication material, chat, roles, admin/config values, arbitrary JSON, raw packets, or file paths in status/error output.
+
+The worker must reset bounded identity maps per trace epoch, produce a valid `.ndjson` only after finalization, and keep raw partials separate. It has no authorization to upload traces or access public servers.
+
+## Required blocker gate before writer or hook
+
+All of the following must pass on a release-active target before a writer or `HandlePosition` change is started:
+
+1. deterministic capacity saturation/newest-sentinel coverage, multi-producer accounting, and concurrent kill-switch coverage;
+2. zero warmed producer allocations and lock-free queue plus all producer atomics;
+3. complete CMake configure/build/CTest gates with the option both `OFF` and `ON`, including proof that the OFF build has no observer compilation unit/symbol; and
+4. a ThreadSanitizer race run.
+
+On 2026-08-09, both fresh local Release configurations (`OFF` and `ON`) reached CMake generation but failed while compiling existing BeamMP sources due to the installed GCC 15.2 and sol2 3.3.1 incompatibility: `sol::optional<T&>::emplace` references missing `construct` in `optional_implementation.hpp:2194`. This is outside the observer patch. Therefore the full CMake/CTest gate remains **blocked**, and no writer or post-store hook may be added.
+
+## Scope
+
+This work remains limited to local source/test verification. It does not authorize any public-server action, Server4 inspection/configuration/restart, container/image build or push, deployment, trace capture, or sensitive-config access. A separately approved, documented Server4 manifest is required after all local gates pass.
