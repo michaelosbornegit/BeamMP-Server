@@ -39,7 +39,7 @@ All of the following must pass on a release-active target before a writer or `Ha
 
 On 2026-08-09, fresh local Release `OFF` and `ON` CMake/build gates passed with a temporary user-owned GCC 14.3 extraction and separately resolved vcpkg dependencies. OFF emitted no observer compile commands and registered no tests; ON built both targets and passed the combined `ObserverTrace` CTest suite. The host GCC 15.2/sol2 incompatibility was not patched or worked around in BeamMP source.
 
-The mandatory ThreadSanitizer gate remains **blocked**: the chosen Boost fixed-size lock-free queue reports a concurrent freelist race. No writer or post-store hook may be added until a bounded MPSC implementation passes TSan.
+The original Boost fixed-size queue was rejected after ThreadSanitizer reported a concurrent freelist race. The test-only boundary now uses the source-reviewed fixed-slot `FixedMpscLatestQueue`; a GCC 15.2 `-fsanitize=thread` run of all capture tests passed cleanly. The remaining deterministic kill-switch handoff test also passed: a producer released only after the disabling release-store was rejected while the already-published record remained pending. Together with the previously passing release allocation/lock-free and OFF/ON CMake/CTest gates, the prerequisite gate is complete locally. This does not authorize deployment or public/server configuration access; the next source task may be worker-side writer tests, still test-first.
 
 ## Scope
 
