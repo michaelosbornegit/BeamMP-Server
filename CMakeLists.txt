@@ -19,6 +19,8 @@ include(cmake/Git.cmake)
 
 ### SETTINGS ###
 
+option(BEAMMP_OBSERVER_TRACE_TEST_ONLY "Build test-only observer trace capture checks" OFF)
+
 # add all headers (.h, .hpp) to this
 set(PRJ_HEADERS
     include/ArgsParser.h
@@ -86,6 +88,12 @@ set(PRJ_SOURCES
     src/TLuaResult.cpp
 )
 
+set(OBSERVER_TRACE_TEST_SOURCES)
+if(BEAMMP_OBSERVER_TRACE_TEST_ONLY)
+    list(APPEND PRJ_HEADERS include/ObserverTraceCapture.h include/ObserverTraceSanitizer.h)
+    list(APPEND OBSERVER_TRACE_TEST_SOURCES test/ObserverTraceCaptureTests.cpp)
+endif()
+
 find_package(Lua REQUIRED)
 
 # set the source file containing main()
@@ -124,6 +132,9 @@ find_package(libzip CONFIG REQUIRED)
 find_package(RapidJSON CONFIG REQUIRED)
 find_package(sol2 CONFIG REQUIRED)
 find_package(CURL CONFIG REQUIRED)
+if(BEAMMP_OBSERVER_TRACE_TEST_ONLY)
+    find_package(nlohmann_json CONFIG REQUIRED)
+endif()
 add_subdirectory("deps/toml11")
 
 include_directories(include)
@@ -224,11 +235,17 @@ set_project_warnings(${PROJECT_NAME})
 
 if(${PROJECT_NAME}_ENABLE_UNIT_TESTING)
     message(STATUS "Unit tests are enabled and will be built as '${PROJECT_NAME}-tests'")
-    add_executable(${PROJECT_NAME}-tests ${PRJ_HEADERS} ${PRJ_SOURCES} ${PRJ_TEST_MAIN})
+    add_executable(${PROJECT_NAME}-tests ${PRJ_HEADERS} ${PRJ_SOURCES} ${PRJ_TEST_MAIN} ${OBSERVER_TRACE_TEST_SOURCES})
     target_include_directories(${PROJECT_NAME}-tests PRIVATE ${PRJ_INCLUDE_DIRS})
     target_link_libraries(${PROJECT_NAME}-tests ${PRJ_LIBRARIES})
     target_compile_features(${PROJECT_NAME}-tests PRIVATE ${PRJ_COMPILE_FEATURES})
     target_compile_definitions(${PROJECT_NAME}-tests PRIVATE ${PRJ_DEFINITIONS} ${PRJ_WARNINGS})
+    if(BEAMMP_OBSERVER_TRACE_TEST_ONLY)
+        include(CTest)
+        target_compile_definitions(${PROJECT_NAME}-tests PRIVATE BEAMMP_OBSERVER_TRACE_TEST_ONLY=1)
+        target_link_libraries(${PROJECT_NAME}-tests nlohmann_json::nlohmann_json)
+        add_test(NAME ObserverTraceCapture COMMAND ${PROJECT_NAME}-tests "--test-case=observer trace capture*")
+    endif()
     set_project_warnings(${PROJECT_NAME}-tests)
     if(MSVC)
         target_link_options(${PROJECT_NAME}-tests PRIVATE "/SUBSYSTEM:CONSOLE")
