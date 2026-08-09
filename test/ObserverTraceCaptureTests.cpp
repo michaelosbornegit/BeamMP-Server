@@ -1,4 +1,5 @@
 #include "ObserverTraceCapture.h"
+#include "ObserverTraceMpscQueue.h"
 
 #include <array>
 #include <atomic>
@@ -24,6 +25,22 @@ void* operator new(std::size_t size) {
 
 void operator delete(void* memory) noexcept { std::free(memory); }
 void operator delete(void* memory, std::size_t) noexcept { std::free(memory); }
+
+TEST_CASE("observer fixed MPSC queue overwrites an occupied cyclic slot without producer retries") {
+    beammp::observer::FixedMpscLatestQueue<int, 4> queue;
+
+    CHECK_EQ(queue.TryPush(1), beammp::observer::QueuePushResult::Inserted);
+    CHECK_EQ(queue.TryPush(2), beammp::observer::QueuePushResult::Inserted);
+    CHECK_EQ(queue.TryPush(3), beammp::observer::QueuePushResult::Inserted);
+    CHECK_EQ(queue.TryPush(4), beammp::observer::QueuePushResult::Inserted);
+    CHECK_EQ(queue.TryPush(5), beammp::observer::QueuePushResult::Evicted);
+
+    bool foundNewest = false;
+    int value {};
+    while (queue.TryPop(value)) foundNewest = foundNewest || value == 5;
+    CHECK(foundNewest);
+    CHECK(queue.IsLockFree());
+}
 
 TEST_CASE("observer trace capture is runtime disabled by default") {
     beammp::observer::ObserverTraceCapture capture;
@@ -163,7 +180,7 @@ TEST_CASE("observer trace capture kill switch immediately rejects new records wi
     CHECK_EQ(metrics.Pending, 0);
 }
 
-TEST_CASE("observer trace capture bounds queue work to one push one eviction and one retry") {
+TEST_CASE("observer trace capture bounds a saturated publish to one atomic slot claim") {
     beammp::observer::ObserverTraceCapture capture;
     capture.SetEnabledForTest(true);
 
@@ -173,5 +190,5 @@ TEST_CASE("observer trace capture bounds queue work to one push one eviction and
 
     capture.ResetProducerQueueOperationCountForTest();
     REQUIRE(capture.TryCaptureStoredPose(2, 9999, "{}", 9999));
-    CHECK_EQ(capture.ProducerQueueOperationCountForTest(), 3);
+    CHECK_EQ(capture.ProducerQueueOperationCountForTest(), 1);
 }

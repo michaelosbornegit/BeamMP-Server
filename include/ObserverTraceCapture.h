@@ -16,7 +16,7 @@
 #include <string_view>
 #include <type_traits>
 
-#include <boost/lockfree/queue.hpp>
+#include "ObserverTraceMpscQueue.h"
 
 namespace beammp::observer {
 
@@ -30,8 +30,8 @@ struct RawStoredPoseV1 final {
 };
 static_assert(std::is_trivially_copyable_v<RawStoredPoseV1>);
 
-// Test-build capture boundary. The producer call is bounded: one push, then at
-// most one evict-oldest pop and one retry. It performs no I/O, JSON parsing,
+// Test-build capture boundary. The producer call is bounded to one fixed-slot
+// claim that either inserts, cyclically evicts, or drops. It performs no I/O, JSON parsing,
 // allocation, waiting, or logging.
 class ObserverTraceCapture final {
 public:
@@ -76,21 +76,18 @@ public:
         // consumer cannot decrement it before this producer increments it.
         mPending.fetch_add(1, std::memory_order_relaxed);
         mProducerQueueOperations.fetch_add(1, std::memory_order_relaxed);
-        if (mQueue.push(record)) {
+        const auto result = mQueue.TryPush(record);
+        if (result == QueuePushResult::Inserted) {
             mAccepted.fetch_add(1, std::memory_order_relaxed);
             return true;
         }
-
-        RawStoredPoseV1 discarded {};
-        mProducerQueueOperations.fetch_add(1, std::memory_order_relaxed);
-        if (mQueue.pop(discarded)) {
+        if (result == QueuePushResult::Evicted) {
+            // This publication replaces one ready slot, so the optimistic
+            // pending increment must not increase the approximate depth.
             mPending.fetch_sub(1, std::memory_order_relaxed);
             mEvictedOldest.fetch_add(1, std::memory_order_relaxed);
-            mProducerQueueOperations.fetch_add(1, std::memory_order_relaxed);
-            if (mQueue.push(record)) {
-                mAccepted.fetch_add(1, std::memory_order_relaxed);
-                return true;
-            }
+            mAccepted.fetch_add(1, std::memory_order_relaxed);
+            return true;
         }
         mPending.fetch_sub(1, std::memory_order_relaxed);
         mContentionDrop.fetch_add(1, std::memory_order_relaxed);
@@ -99,7 +96,7 @@ public:
 
     void SetEnabledForTest(bool enabled) noexcept { mEnabled.store(enabled, std::memory_order_release); }
     [[nodiscard]] bool TryPopForTest(RawStoredPoseV1& output) noexcept {
-        if (!mQueue.pop(output)) return false;
+        if (!mQueue.TryPop(output)) return false;
         mPending.fetch_sub(1, std::memory_order_relaxed);
         mDequeued.fetch_add(1, std::memory_order_relaxed);
         return true;
@@ -115,7 +112,7 @@ public:
             mPending.load(std::memory_order_relaxed),
         };
     }
-    [[nodiscard]] bool IsLockFree() const noexcept { return mQueue.is_lock_free() && mEnabled.is_lock_free() && mSequence.is_lock_free() && mInvalidId.is_lock_free() && mInvalidPayload.is_lock_free() && mOversize.is_lock_free() && mAccepted.is_lock_free() && mPending.is_lock_free() && mEvictedOldest.is_lock_free() && mContentionDrop.is_lock_free() && mDequeued.is_lock_free() && mProducerQueueOperations.is_lock_free(); }
+    [[nodiscard]] bool IsLockFree() const noexcept { return mQueue.IsLockFree() && mEnabled.is_lock_free() && mSequence.is_lock_free() && mInvalidId.is_lock_free() && mInvalidPayload.is_lock_free() && mOversize.is_lock_free() && mAccepted.is_lock_free() && mPending.is_lock_free() && mEvictedOldest.is_lock_free() && mContentionDrop.is_lock_free() && mDequeued.is_lock_free() && mProducerQueueOperations.is_lock_free(); }
     [[nodiscard]] std::uint64_t InvalidIds() const noexcept { return mInvalidId.load(std::memory_order_relaxed); }
     [[nodiscard]] std::uint64_t InvalidPayloads() const noexcept { return mInvalidPayload.load(std::memory_order_relaxed); }
     [[nodiscard]] std::uint64_t Oversize() const noexcept { return mOversize.load(std::memory_order_relaxed); }
@@ -126,7 +123,7 @@ public:
     [[nodiscard]] std::uint64_t ProducerQueueOperationCountForTest() const noexcept { return mProducerQueueOperations.load(std::memory_order_relaxed); }
 
 private:
-    boost::lockfree::queue<RawStoredPoseV1, boost::lockfree::capacity<kQueueCapacity>> mQueue {};
+    FixedMpscLatestQueue<RawStoredPoseV1, kQueueCapacity> mQueue {};
     std::atomic<bool> mEnabled { false };
     std::atomic<std::uint64_t> mSequence {};
     std::atomic<std::uint64_t> mInvalidId {};
@@ -137,8 +134,8 @@ private:
     std::atomic<std::uint64_t> mEvictedOldest {};
     std::atomic<std::uint64_t> mContentionDrop {};
     std::atomic<std::uint64_t> mDequeued {};
-    // Test-only accounting seam: the wrapper may issue at most one push, one
-    // eviction pop, and one retry push for a valid producer call.
+    // Test-only accounting seam: the wrapper issues one bounded slot claim for
+    // each valid producer call.
     std::atomic<std::uint64_t> mProducerQueueOperations {};
 };
 
