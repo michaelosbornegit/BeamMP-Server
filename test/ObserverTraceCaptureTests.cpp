@@ -192,3 +192,27 @@ TEST_CASE("observer trace capture bounds a saturated publish to one atomic slot 
     REQUIRE(capture.TryCaptureStoredPose(2, 9999, "{}", 9999));
     CHECK_EQ(capture.ProducerQueueOperationCountForTest(), 1);
 }
+
+TEST_CASE("observer trace capture kill switch rejects a producer release after off") {
+    beammp::observer::ObserverTraceCapture capture;
+    capture.SetEnabledForTest(true);
+    std::atomic<bool> firstPublished {};
+    std::atomic<bool> releaseSecondPublish {};
+    std::atomic<bool> secondAccepted { true };
+
+    std::thread producer([&] {
+        CHECK(capture.TryCaptureStoredPose(3, 4, "{}", 10));
+        firstPublished.store(true, std::memory_order_release);
+        while (!releaseSecondPublish.load(std::memory_order_acquire)) {}
+        secondAccepted.store(capture.TryCaptureStoredPose(3, 5, "{}", 11), std::memory_order_release);
+    });
+
+    while (!firstPublished.load(std::memory_order_acquire)) {}
+    capture.SetEnabledForTest(false);
+    releaseSecondPublish.store(true, std::memory_order_release);
+    producer.join();
+
+    CHECK_FALSE(secondAccepted.load(std::memory_order_acquire));
+    CHECK_EQ(capture.Accepted(), 1);
+    CHECK_EQ(capture.PendingForTest(), 1);
+}
