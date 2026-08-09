@@ -162,3 +162,16 @@ TEST_CASE("observer trace capture kill switch immediately rejects new records wi
     CHECK_EQ(metrics.Dequeued, 1);
     CHECK_EQ(metrics.Pending, 0);
 }
+
+TEST_CASE("observer trace capture bounds queue work to one push one eviction and one retry") {
+    beammp::observer::ObserverTraceCapture capture;
+    capture.SetEnabledForTest(true);
+
+    for (std::size_t index = 0; index < beammp::observer::ObserverTraceCapture::kQueueCapacity; ++index) {
+        REQUIRE(capture.TryCaptureStoredPose(1, static_cast<std::int32_t>(index), "{}", index));
+    }
+
+    capture.ResetProducerQueueOperationCountForTest();
+    REQUIRE(capture.TryCaptureStoredPose(2, 9999, "{}", 9999));
+    CHECK_EQ(capture.ProducerQueueOperationCountForTest(), 3);
+}
