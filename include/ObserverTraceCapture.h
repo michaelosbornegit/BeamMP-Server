@@ -38,6 +38,15 @@ public:
     static constexpr std::size_t kRawPoseCapacity = 1024;
     static constexpr std::size_t kQueueCapacity = 4096;
 
+    struct Metrics final {
+        std::uint64_t ValidAttempts {};
+        std::uint64_t QueuedSuccesses {};
+        std::uint64_t EvictedOldest {};
+        std::uint64_t ContentionDrops {};
+        std::uint64_t Dequeued {};
+        std::size_t Pending {};
+    };
+
     [[nodiscard]] bool TryCaptureStoredPose(std::int32_t playerId, std::int32_t vehicleId, const std::string_view rawPose, std::uint64_t acceptedMonoNs) noexcept {
         if (!mEnabled.load(std::memory_order_acquire)) {
             return false;
@@ -85,10 +94,21 @@ public:
     [[nodiscard]] bool TryPopForTest(RawStoredPoseV1& output) noexcept {
         if (!mQueue.pop(output)) return false;
         mPending.fetch_sub(1, std::memory_order_relaxed);
+        mDequeued.fetch_add(1, std::memory_order_relaxed);
         return true;
     }
     [[nodiscard]] std::size_t PendingForTest() const noexcept { return mPending.load(std::memory_order_relaxed); }
-    [[nodiscard]] bool IsLockFree() const noexcept { return mQueue.is_lock_free() && mEnabled.is_lock_free() && mSequence.is_lock_free() && mInvalid.is_lock_free() && mOversize.is_lock_free() && mAccepted.is_lock_free() && mPending.is_lock_free() && mEvictedOldest.is_lock_free() && mContentionDrop.is_lock_free(); }
+    [[nodiscard]] Metrics MetricsForTest() const noexcept {
+        return {
+            mSequence.load(std::memory_order_relaxed),
+            mAccepted.load(std::memory_order_relaxed),
+            mEvictedOldest.load(std::memory_order_relaxed),
+            mContentionDrop.load(std::memory_order_relaxed),
+            mDequeued.load(std::memory_order_relaxed),
+            mPending.load(std::memory_order_relaxed),
+        };
+    }
+    [[nodiscard]] bool IsLockFree() const noexcept { return mQueue.is_lock_free() && mEnabled.is_lock_free() && mSequence.is_lock_free() && mInvalid.is_lock_free() && mOversize.is_lock_free() && mAccepted.is_lock_free() && mPending.is_lock_free() && mEvictedOldest.is_lock_free() && mContentionDrop.is_lock_free() && mDequeued.is_lock_free(); }
     [[nodiscard]] std::uint64_t Invalid() const noexcept { return mInvalid.load(std::memory_order_relaxed); }
     [[nodiscard]] std::uint64_t Oversize() const noexcept { return mOversize.load(std::memory_order_relaxed); }
     [[nodiscard]] std::uint64_t Accepted() const noexcept { return mAccepted.load(std::memory_order_relaxed); }
@@ -105,6 +125,7 @@ private:
     std::atomic<std::size_t> mPending {};
     std::atomic<std::uint64_t> mEvictedOldest {};
     std::atomic<std::uint64_t> mContentionDrop {};
+    std::atomic<std::uint64_t> mDequeued {};
 };
 
 } // namespace beammp::observer
