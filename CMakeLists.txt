@@ -244,7 +244,9 @@ if(${PROJECT_NAME}_ENABLE_UNIT_TESTING)
         include(CTest)
         target_compile_definitions(${PROJECT_NAME}-tests PRIVATE BEAMMP_OBSERVER_TRACE_TEST_ONLY=1)
         target_link_libraries(${PROJECT_NAME}-tests nlohmann_json::nlohmann_json)
-        add_test(NAME ObserverTraceCapture COMMAND ${PROJECT_NAME}-tests "--test-case=observer trace capture*")
+        # Keep the CTest gate aligned with every test-build-only observer suite,
+        # including worker-side sanitizer/privacy tests.
+        add_test(NAME ObserverTrace COMMAND ${PROJECT_NAME}-tests "--test-case=observer *")
     endif()
     set_project_warnings(${PROJECT_NAME}-tests)
     if(MSVC)
