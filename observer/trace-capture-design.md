@@ -37,7 +37,9 @@ All of the following must pass on a release-active target before a writer or `Ha
 3. complete CMake configure/build/CTest gates with the option both `OFF` and `ON`, including proof that the OFF build has no observer compilation unit/symbol; and
 4. a ThreadSanitizer race run.
 
-On 2026-08-09, both fresh local Release configurations (`OFF` and `ON`) reached CMake generation but failed while compiling existing BeamMP sources due to the installed GCC 15.2 and sol2 3.3.1 incompatibility: `sol::optional<T&>::emplace` references missing `construct` in `optional_implementation.hpp:2194`. This is outside the observer patch. Therefore the full CMake/CTest gate remains **blocked**, and no writer or post-store hook may be added.
+On 2026-08-09, fresh local Release `OFF` and `ON` CMake/build gates passed with a temporary user-owned GCC 14.3 extraction and separately resolved vcpkg dependencies. OFF emitted no observer compile commands and registered no tests; ON built both targets and passed the combined `ObserverTrace` CTest suite. The host GCC 15.2/sol2 incompatibility was not patched or worked around in BeamMP source.
+
+The mandatory ThreadSanitizer gate remains **blocked**: the chosen Boost fixed-size lock-free queue reports a concurrent freelist race. No writer or post-store hook may be added until a bounded MPSC implementation passes TSan.
 
 ## Scope
 
