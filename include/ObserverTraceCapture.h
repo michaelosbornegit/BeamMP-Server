@@ -59,6 +59,9 @@ public:
         record.PayloadSize = static_cast<std::uint16_t>(rawPose.size());
         std::memcpy(record.RawPose.data(), rawPose.data(), rawPose.size());
 
+        // Reserve the approximate-depth slot before publication so a concurrent
+        // consumer cannot decrement it before this producer increments it.
+        mPending.fetch_add(1, std::memory_order_relaxed);
         if (mQueue.push(record)) {
             mAccepted.fetch_add(1, std::memory_order_relaxed);
             return true;
@@ -66,19 +69,26 @@ public:
 
         RawStoredPoseV1 discarded {};
         if (mQueue.pop(discarded)) {
+            mPending.fetch_sub(1, std::memory_order_relaxed);
             mEvictedOldest.fetch_add(1, std::memory_order_relaxed);
             if (mQueue.push(record)) {
                 mAccepted.fetch_add(1, std::memory_order_relaxed);
                 return true;
             }
         }
+        mPending.fetch_sub(1, std::memory_order_relaxed);
         mContentionDrop.fetch_add(1, std::memory_order_relaxed);
         return false;
     }
 
     void SetEnabledForTest(bool enabled) noexcept { mEnabled.store(enabled, std::memory_order_release); }
-    [[nodiscard]] bool TryPopForTest(RawStoredPoseV1& output) noexcept { return mQueue.pop(output); }
-    [[nodiscard]] bool IsLockFree() const noexcept { return mQueue.is_lock_free() && mEnabled.is_lock_free() && mSequence.is_lock_free() && mInvalid.is_lock_free() && mOversize.is_lock_free() && mAccepted.is_lock_free() && mEvictedOldest.is_lock_free() && mContentionDrop.is_lock_free(); }
+    [[nodiscard]] bool TryPopForTest(RawStoredPoseV1& output) noexcept {
+        if (!mQueue.pop(output)) return false;
+        mPending.fetch_sub(1, std::memory_order_relaxed);
+        return true;
+    }
+    [[nodiscard]] std::size_t PendingForTest() const noexcept { return mPending.load(std::memory_order_relaxed); }
+    [[nodiscard]] bool IsLockFree() const noexcept { return mQueue.is_lock_free() && mEnabled.is_lock_free() && mSequence.is_lock_free() && mInvalid.is_lock_free() && mOversize.is_lock_free() && mAccepted.is_lock_free() && mPending.is_lock_free() && mEvictedOldest.is_lock_free() && mContentionDrop.is_lock_free(); }
     [[nodiscard]] std::uint64_t Invalid() const noexcept { return mInvalid.load(std::memory_order_relaxed); }
     [[nodiscard]] std::uint64_t Oversize() const noexcept { return mOversize.load(std::memory_order_relaxed); }
     [[nodiscard]] std::uint64_t Accepted() const noexcept { return mAccepted.load(std::memory_order_relaxed); }
@@ -92,6 +102,7 @@ private:
     std::atomic<std::uint64_t> mInvalid {};
     std::atomic<std::uint64_t> mOversize {};
     std::atomic<std::uint64_t> mAccepted {};
+    std::atomic<std::size_t> mPending {};
     std::atomic<std::uint64_t> mEvictedOldest {};
     std::atomic<std::uint64_t> mContentionDrop {};
 };

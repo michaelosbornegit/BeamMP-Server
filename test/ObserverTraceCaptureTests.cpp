@@ -33,3 +33,25 @@ TEST_CASE("observer trace capture enforces record capacity and preserves copied 
     CHECK_EQ(record.RawPose[0], '{');
     CHECK_EQ(record.RawPose[1], '}');
 }
+
+TEST_CASE("observer trace capture retains a newest sentinel after deterministic saturation") {
+    beammp::observer::ObserverTraceCapture capture;
+    capture.SetEnabledForTest(true);
+    const std::string_view payload { "{}" };
+
+    for (std::size_t index = 0; index < beammp::observer::ObserverTraceCapture::kQueueCapacity; ++index) {
+        REQUIRE(capture.TryCaptureStoredPose(7, static_cast<std::int32_t>(index), payload, index));
+    }
+
+    REQUIRE(capture.TryCaptureStoredPose(8, 9999, payload, 9999));
+    CHECK_EQ(capture.EvictedOldest(), 1);
+    CHECK_EQ(capture.ContentionDrop(), 0);
+    CHECK_EQ(capture.PendingForTest(), beammp::observer::ObserverTraceCapture::kQueueCapacity);
+
+    bool foundSentinel = false;
+    beammp::observer::RawStoredPoseV1 record {};
+    while (capture.TryPopForTest(record)) {
+        foundSentinel = foundSentinel || (record.PlayerId == 8 && record.VehicleId == 9999 && record.AcceptedMonoNs == 9999);
+    }
+    CHECK(foundSentinel);
+}
