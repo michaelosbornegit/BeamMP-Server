@@ -393,3 +393,27 @@ TEST_CASE("observer worker rotation reaches duration and size boundaries without
     CHECK(policy.ShouldRotate(10'000, 10'001, 600));
     CHECK_FALSE(policy.ShouldRotate(10'000, 9'999, 599));
 }
+
+TEST_CASE("observer trace epoch exposes rotation at its own duration and byte boundaries") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-epoch-rotation-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto partial = directory / "beammp-accepted-pose-test.ndjson.part";
+    {
+        beammp::observer::TraceEpochFile epoch(partial, 10'000, 2, 3, 600);
+        REQUIRE(epoch.IsOpen());
+        const beammp::observer::TraceEpochRotationPolicy durationPolicy {
+            .MaximumDurationNs = 1'000,
+            .MaximumFileBytes = 0,
+        };
+        const beammp::observer::TraceEpochRotationPolicy bytePolicy {
+            .MaximumDurationNs = 0,
+            .MaximumFileBytes = epoch.BytesWritten(),
+        };
+        CHECK_FALSE(epoch.ShouldRotate(durationPolicy, 10'999));
+        CHECK(epoch.ShouldRotate(durationPolicy, 11'000));
+        CHECK_FALSE(epoch.ShouldRotate(durationPolicy, 9'999));
+        CHECK(epoch.ShouldRotate(bytePolicy, 10'001));
+    }
+
+    std::filesystem::remove_all(directory);
+}

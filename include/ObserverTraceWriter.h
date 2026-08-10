@@ -171,7 +171,7 @@ class TraceEpochFile final {
 public:
     TraceEpochFile(const std::filesystem::path& partialPath, const std::uint64_t traceStartMonoNs, const std::size_t maxPlayers, const std::size_t maxVehicles,
         const std::uintmax_t maximumBytes = std::numeric_limits<std::uintmax_t>::max())
-        : mPartialPath(partialPath), mFinalPath(FinalPath(partialPath)), mWriter(traceStartMonoNs, maxPlayers, maxVehicles), mMaximumBytes(maximumBytes) {
+        : mPartialPath(partialPath), mFinalPath(FinalPath(partialPath)), mTraceStartMonoNs(traceStartMonoNs), mWriter(traceStartMonoNs, maxPlayers, maxVehicles), mMaximumBytes(maximumBytes) {
         if (!HasObserverPartialName(mPartialPath) || !HasSafeParentDirectory(mPartialPath)) return;
         std::error_code statusError;
         const auto finalStatus = std::filesystem::symlink_status(mFinalPath, statusError);
@@ -219,6 +219,12 @@ public:
     TraceEpochFile& operator=(const TraceEpochFile&) = delete;
 
     [[nodiscard]] bool IsOpen() const noexcept { return mOpen; }
+
+    [[nodiscard]] std::uintmax_t BytesWritten() const noexcept { return mBytesWritten; }
+
+    [[nodiscard]] bool ShouldRotate(const TraceEpochRotationPolicy& policy, const std::uint64_t currentMonoNs) const noexcept {
+        return policy.ShouldRotate(mTraceStartMonoNs, currentMonoNs, mBytesWritten);
+    }
 
     [[nodiscard]] bool Append(const std::string_view rawPose, const std::int32_t playerId, const std::int32_t vehicleId, const std::uint64_t acceptedMonoNs) {
         if (!mOpen) return false;
@@ -301,6 +307,7 @@ private:
 
     std::filesystem::path mPartialPath;
     std::filesystem::path mFinalPath;
+    std::uint64_t mTraceStartMonoNs {};
     TraceRecordWriter mWriter;
     std::ofstream mStream;
     std::uintmax_t mMaximumBytes {};
