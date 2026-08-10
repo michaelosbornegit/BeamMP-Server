@@ -103,7 +103,8 @@ public:
                 + " accepted=" + std::to_string(metrics.QueuedSuccesses)
                 + " pending=" + std::to_string(metrics.Pending)
                 + " evicted=" + std::to_string(metrics.EvictedOldest)
-                + " contention_drop=" + std::to_string(metrics.ContentionDrops);
+                + " contention_drop=" + std::to_string(metrics.ContentionDrops)
+                + (mObserverTraceRuntime && mObserverTraceRuntime->WriterFaulted() ? " writer=faulted" : "");
         }
         if (command == "off") {
             mObserverTraceCapture->Disable();

@@ -564,6 +564,7 @@ public:
 
     [[nodiscard]] std::uint64_t Written() const noexcept { return mWritten; }
     [[nodiscard]] std::uint64_t ParseRejected() const noexcept { return mParseRejected; }
+    [[nodiscard]] bool Faulted() const noexcept { return mFaulted; }
 
     void AbortForWriterFault() noexcept {
         mCapture.Disable();
@@ -616,14 +617,19 @@ public:
 
     [[nodiscard]] std::uint64_t Written() const noexcept { return mWorker.Written(); }
     [[nodiscard]] bool Finalized() const noexcept { return mFinalized.load(std::memory_order_acquire); }
+    [[nodiscard]] bool Faulted() const noexcept { return mFaulted.load(std::memory_order_acquire); }
 
 private:
     static constexpr std::size_t kDrainBatchSize = 64;
 
     void Run() noexcept {
         for (;;) {
-            if (mWriterFaultRequested.load(std::memory_order_acquire)) mWorker.AbortForWriterFault();
+            if (mWriterFaultRequested.load(std::memory_order_acquire)) {
+                mWorker.AbortForWriterFault();
+                mFaulted.store(true, std::memory_order_release);
+            }
             const auto drained = mWorker.DrainAtMost(kDrainBatchSize);
+            if (mWorker.Faulted()) mFaulted.store(true, std::memory_order_release);
             if ((mStopRequested.load(std::memory_order_acquire) || !mCapture.IsEnabled()) && mCapture.PendingForTest() == 0
                 && mCapture.ActiveProducersForTest() == 0) break;
             if (drained == 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -645,6 +651,7 @@ private:
     std::atomic<bool> mStopRequested { false };
     std::atomic<bool> mWriterFaultRequested { false };
     std::atomic<bool> mFinalized { false };
+    std::atomic<bool> mFaulted { false };
     std::thread mThread;
 };
 
@@ -695,6 +702,10 @@ public:
 
     [[nodiscard]] bool Finalized() const noexcept {
         return mFinalized || (mWorker && mWorker->Finalized());
+    }
+
+    [[nodiscard]] bool WriterFaulted() const noexcept {
+        return mWorker && mWorker->Faulted();
     }
 
     void RequestWriterFaultForTest() noexcept {

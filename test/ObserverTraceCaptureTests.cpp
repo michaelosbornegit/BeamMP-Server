@@ -468,6 +468,8 @@ TEST_CASE("observer runtime refuses re-enable after a writer fault") {
     }
 
     CHECK_FALSE(server.ObserverTraceCaptureEnabledForTest());
+    const auto status = server.RunObserverTraceCommandForTest("status");
+    CHECK(status.find("writer=faulted") != std::string::npos);
     CHECK_EQ(server.RunObserverTraceCommandForTest("on"), "observertrace unavailable");
     server.StopObserverTraceForTest();
     std::filesystem::remove_all(directory);
