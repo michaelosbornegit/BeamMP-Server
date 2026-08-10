@@ -179,6 +179,15 @@ int BeamMPServerMain(MainArguments Arguments) {
 
     TServer Server(Arguments.List);
 
+#ifdef BEAMMP_OBSERVER_TRACE_TEST_ONLY
+    // `main` owns Server until GracefullyShutdown has run, unlike short-lived
+    // unit-test server instances. Register here so std::exit shutdown cannot
+    // bypass worker finalization by relying on a destructor.
+    Application::RegisterShutdownHandler([&Server] {
+        Server.ShutdownObserverTraceForTest();
+    });
+#endif
+
     RegisterThread("Main");
 
     beammp_trace("Running in debug mode on a debug build");

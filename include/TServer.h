@@ -83,6 +83,12 @@ public:
         return true;
     }
     void StopObserverTraceForTest() noexcept {
+        ShutdownObserverTraceForTest();
+    }
+    // Called by the application shutdown handler while this server remains
+    // alive. It disables packet producers before joining the worker and is
+    // safe if explicit runtime control already stopped the trace.
+    void ShutdownObserverTraceForTest() noexcept {
         if (!mObserverTraceRuntime) return;
         mObserverTraceRuntime->StopAndJoin();
         mObserverTraceFinalized = mObserverTraceRuntime->Finalized();
