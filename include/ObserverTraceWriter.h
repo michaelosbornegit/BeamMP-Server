@@ -226,6 +226,12 @@ struct TraceEpochRotationPolicy final {
 
 // Worker-side epoch file only. A trace remains a .part file unless a complete
 // allowlisted footer has been flushed and the atomic rename succeeds.
+enum class TraceAppendResult : std::uint8_t {
+    Written,
+    Rejected,
+    Fault,
+};
+
 class TraceEpochFile final {
 public:
     TraceEpochFile(const std::filesystem::path& partialPath, const std::uint64_t traceStartMonoNs, const std::size_t maxPlayers, const std::size_t maxVehicles,
@@ -296,21 +302,22 @@ public:
         return policy.ShouldRotate(mTraceStartMonoNs, currentMonoNs, mBytesWritten);
     }
 
-    [[nodiscard]] bool Append(const std::string_view rawPose, const std::int32_t playerId, const std::int32_t vehicleId, const std::uint64_t acceptedMonoNs) {
-        if (!mOpen) return false;
+    [[nodiscard]] TraceAppendResult Append(const std::string_view rawPose, const std::int32_t playerId, const std::int32_t vehicleId, const std::uint64_t acceptedMonoNs) {
+        if (!mOpen) return TraceAppendResult::Fault;
         RawStoredPoseV1 record {};
-        if (rawPose.size() > record.RawPose.size()) return false;
+        if (rawPose.size() > record.RawPose.size()) return TraceAppendResult::Rejected;
         record.PlayerId = playerId;
         record.VehicleId = vehicleId;
         record.AcceptedMonoNs = acceptedMonoNs;
         record.PayloadSize = static_cast<std::uint16_t>(rawPose.size());
         std::memcpy(record.RawPose.data(), rawPose.data(), rawPose.size());
         const auto line = mWriter.Serialize(record);
-        if (!line || !BytesFit(line->size() + 1, mFooterReserveBytes)) return false;
+        if (!line) return TraceAppendResult::Rejected;
+        if (!BytesFit(line->size() + 1, mFooterReserveBytes)) return TraceAppendResult::Fault;
         mStream << *line << '\n';
-        if (!mStream) return false;
+        if (!mStream) return TraceAppendResult::Fault;
         mBytesWritten += line->size() + 1;
-        return true;
+        return TraceAppendResult::Written;
     }
 
     // A writer fault must never produce a falsely complete trace. Close the
@@ -411,9 +418,10 @@ public:
         return true;
     }
 
-    [[nodiscard]] bool Append(const std::string_view rawPose, const std::int32_t playerId, const std::int32_t vehicleId,
+    [[nodiscard]] TraceAppendResult Append(const std::string_view rawPose, const std::int32_t playerId, const std::int32_t vehicleId,
         const std::uint64_t acceptedMonoNs) {
-        return mEpoch && mEpoch->Append(rawPose, playerId, vehicleId, acceptedMonoNs);
+        if (!mEpoch) return TraceAppendResult::Fault;
+        return mEpoch->Append(rawPose, playerId, vehicleId, acceptedMonoNs);
     }
 
     [[nodiscard]] bool RotateIfNeeded(const std::uint64_t currentMonoNs, const TraceRecordWriter::FooterMetrics& metrics,
@@ -475,7 +483,12 @@ public:
     [[nodiscard]] bool DrainOne() noexcept {
         RawStoredPoseV1 record {};
         if (!mCapture.TryPopForTest(record)) return false;
-        if (!mLifecycle.Append(std::string_view(record.RawPose.data(), record.PayloadSize), record.PlayerId, record.VehicleId, record.AcceptedMonoNs)) {
+        const auto appendResult = mLifecycle.Append(std::string_view(record.RawPose.data(), record.PayloadSize), record.PlayerId, record.VehicleId, record.AcceptedMonoNs);
+        if (appendResult == TraceAppendResult::Rejected) {
+            ++mParseRejected;
+            return true;
+        }
+        if (appendResult == TraceAppendResult::Fault) {
             AbortForWriterFault();
             return false;
         }
@@ -484,6 +497,7 @@ public:
     }
 
     [[nodiscard]] std::uint64_t Written() const noexcept { return mWritten; }
+    [[nodiscard]] std::uint64_t ParseRejected() const noexcept { return mParseRejected; }
 
     void AbortForWriterFault() noexcept {
         mCapture.Disable();
@@ -498,6 +512,7 @@ private:
     ObserverTraceCapture& mCapture;
     TraceEpochLifecycle& mLifecycle;
     std::uint64_t mWritten {};
+    std::uint64_t mParseRejected {};
     std::uint64_t mDiscardedAfterFault {};
 };
 

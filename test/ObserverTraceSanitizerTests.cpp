@@ -141,7 +141,7 @@ TEST_CASE("observer trace epoch remains partial until the privacy-safe footer is
         REQUIRE(epoch.IsOpen());
         CHECK(std::filesystem::exists(partial));
         CHECK_FALSE(std::filesystem::exists(finalized));
-        REQUIRE(epoch.Append(R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})", 42, 9, 1'020'000));
+        REQUIRE(epoch.Append(R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})", 42, 9, 1'020'000) == beammp::observer::TraceAppendResult::Written);
         CHECK(epoch.Finalize({ .Accepted = 1, .Written = 1, .DurationUs = 20'000 }));
     }
 
@@ -169,8 +169,8 @@ TEST_CASE("observer trace epoch refuses an append that would exceed its finalize
     {
         beammp::observer::TraceEpochFile epoch(partial, 1'000'000, 2, 3, byteBudget);
         REQUIRE(epoch.IsOpen());
-        REQUIRE(epoch.Append(R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})", 42, 9, 1'020'000));
-        CHECK_FALSE(epoch.Append(R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})", 42, 9, 1'040'000));
+        REQUIRE(epoch.Append(R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})", 42, 9, 1'020'000) == beammp::observer::TraceAppendResult::Written);
+        CHECK(epoch.Append(R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})", 42, 9, 1'040'000) != beammp::observer::TraceAppendResult::Written);
         CHECK(epoch.Finalize({ .Accepted = 2, .Written = 1, .DurationUs = 40'000 }));
     }
 
@@ -483,12 +483,12 @@ TEST_CASE("observer epoch lifecycle finalizes a rotated trace before resetting d
     beammp::observer::TraceEpochLifecycle lifecycle(
         { .MaximumDurationNs = 1'000, .MaximumFileBytes = 0 }, 2, 3);
     REQUIRE(lifecycle.Start(firstPartial, 10'000));
-    REQUIRE(lifecycle.Append(raw, 42, 9, 10'500));
+    REQUIRE(lifecycle.Append(raw, 42, 9, 10'500) == beammp::observer::TraceAppendResult::Written);
     REQUIRE(lifecycle.RotateIfNeeded(11'000, { .Accepted = 1, .Written = 1, .DurationUs = 1 }, secondPartial));
 
     CHECK(std::filesystem::exists(firstFinal));
     CHECK(std::filesystem::exists(secondPartial));
-    REQUIRE(lifecycle.Append(raw, 73, 21, 11'500));
+    REQUIRE(lifecycle.Append(raw, 73, 21, 11'500) == beammp::observer::TraceAppendResult::Written);
     REQUIRE(lifecycle.Finalize({ .Accepted = 1, .Written = 1, .DurationUs = 1 }));
     REQUIRE(std::filesystem::exists(secondFinal));
 
@@ -580,7 +580,7 @@ TEST_CASE("observer writer fault leaves the current trace identifiable as an unf
     {
         beammp::observer::TraceEpochFile epoch(partial, 1'000'000, 2, 3);
         REQUIRE(epoch.IsOpen());
-        REQUIRE(epoch.Append(R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})", 42, 9, 1'020'000));
+        REQUIRE(epoch.Append(R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})", 42, 9, 1'020'000) == beammp::observer::TraceAppendResult::Written);
 
         epoch.Abort();
 
@@ -626,5 +626,32 @@ TEST_CASE("observer worker drains a queued accepted pose into its active privacy
     CHECK_EQ(record["player"], 0);
     CHECK_EQ(record["vehicle"], 0);
     CHECK_FALSE(record.contains("ip"));
+    std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("observer worker rejects malformed poses without faulting the active trace") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-worker-parse-rejection-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto partial = directory / "beammp-accepted-pose-parse-rejection.ndjson.part";
+    constexpr std::string_view malformed = R"({"pos":[1,2]})";
+    constexpr std::string_view valid = R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})";
+
+    beammp::observer::ObserverTraceCapture capture;
+    capture.SetEnabledForTest(true);
+    REQUIRE(capture.TryCaptureStoredPose(42, 9, malformed, 1'020'000));
+    REQUIRE(capture.TryCaptureStoredPose(42, 9, valid, 1'040'000));
+    beammp::observer::TraceEpochLifecycle lifecycle({}, 2, 3);
+    REQUIRE(lifecycle.Start(partial, 1'000'000));
+    beammp::observer::TraceCaptureWorker worker(capture, lifecycle);
+
+    CHECK(worker.DrainOne());
+    CHECK_EQ(worker.ParseRejected(), 1);
+    CHECK(capture.TryCaptureStoredPose(42, 9, valid, 1'060'000));
+    CHECK(lifecycle.IsOpen());
+    CHECK(worker.DrainOne());
+    CHECK_EQ(worker.Written(), 1);
+    CHECK_EQ(worker.DiscardedAfterFault(), 0);
+
+    lifecycle.Abort();
     std::filesystem::remove_all(directory);
 }
