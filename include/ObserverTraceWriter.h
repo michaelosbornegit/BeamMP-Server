@@ -496,6 +496,14 @@ public:
         return true;
     }
 
+    // The worker chooses a finite batch size so it periodically returns to its
+    // lifecycle loop; producers never participate in this worker-only loop.
+    [[nodiscard]] std::size_t DrainAtMost(const std::size_t maximumRecords) noexcept {
+        std::size_t drained {};
+        while (drained < maximumRecords && DrainOne()) ++drained;
+        return drained;
+    }
+
     [[nodiscard]] std::uint64_t Written() const noexcept { return mWritten; }
     [[nodiscard]] std::uint64_t ParseRejected() const noexcept { return mParseRejected; }
 
