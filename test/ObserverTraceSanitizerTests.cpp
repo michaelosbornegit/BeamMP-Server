@@ -47,3 +47,16 @@ TEST_CASE("observer worker serializes a queued record through the privacy allowl
     CHECK_EQ(output["vehicle"], 0);
     CHECK_FALSE(output.contains("ip"));
 }
+
+TEST_CASE("observer trace writer emits a privacy-minimized epoch header") {
+    beammp::observer::TraceRecordWriter writer(1'000'000, 2, 3);
+
+    const auto header = nlohmann::json::parse(writer.Header());
+    CHECK_EQ(header["schema"], "beammp.accepted-pose/v1");
+    CHECK_EQ(header["clock"], "relative_monotonic_us");
+    CHECK_EQ(header["privacy"], "dense-session-ids;kinematics-only");
+    CHECK_EQ(header.size(), 3);
+    CHECK_FALSE(header.contains("player"));
+    CHECK_FALSE(header.contains("vehicle"));
+    CHECK_FALSE(header.contains("path"));
+}

@@ -24,6 +24,12 @@ public:
     TraceRecordWriter(const std::uint64_t traceStartMonoNs, const std::size_t maxPlayers, const std::size_t maxVehicles)
         : mSanitizer(traceStartMonoNs, maxPlayers, maxVehicles) { }
 
+    // This is emitted once per writer-owned trace epoch. It deliberately carries
+    // no raw identity, source path, configuration, or host metadata.
+    [[nodiscard]] std::string Header() const {
+        return R"({"schema":"beammp.accepted-pose/v1","clock":"relative_monotonic_us","privacy":"dense-session-ids;kinematics-only"})";
+    }
+
     [[nodiscard]] std::optional<std::string> Serialize(const RawStoredPoseV1& record) {
         if (record.PayloadSize > record.RawPose.size()) return std::nullopt;
         return mSanitizer.Sanitize(record.PlayerId, record.VehicleId, record.AcceptedMonoNs,
