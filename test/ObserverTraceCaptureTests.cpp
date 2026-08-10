@@ -52,6 +52,12 @@ TEST_CASE("observer trace capture is runtime disabled by default") {
     CHECK_FALSE(capture.TryPopForTest(empty));
 }
 
+TEST_CASE("observer trace capture proves every producer-visible atomic is lock-free") {
+    beammp::observer::ObserverTraceCapture capture;
+
+    CHECK(capture.ProducerAtomicsAreLockFreeForTest());
+}
+
 TEST_CASE("observer trace capture enforces record capacity and preserves copied data") {
     beammp::observer::ObserverTraceCapture capture;
     std::array<char, 1025> payload {};

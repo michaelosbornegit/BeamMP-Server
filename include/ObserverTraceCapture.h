@@ -112,7 +112,10 @@ public:
             mPending.load(std::memory_order_relaxed),
         };
     }
-    [[nodiscard]] bool IsLockFree() const noexcept { return mQueue.IsLockFree() && mEnabled.is_lock_free() && mSequence.is_lock_free() && mInvalidId.is_lock_free() && mInvalidPayload.is_lock_free() && mOversize.is_lock_free() && mAccepted.is_lock_free() && mPending.is_lock_free() && mEvictedOldest.is_lock_free() && mContentionDrop.is_lock_free() && mDequeued.is_lock_free() && mProducerQueueOperations.is_lock_free(); }
+    [[nodiscard]] bool ProducerAtomicsAreLockFreeForTest() const noexcept {
+        return mEnabled.is_lock_free() && mSequence.is_lock_free() && mInvalidId.is_lock_free() && mInvalidPayload.is_lock_free() && mOversize.is_lock_free() && mAccepted.is_lock_free() && mPending.is_lock_free() && mEvictedOldest.is_lock_free() && mContentionDrop.is_lock_free() && mDequeued.is_lock_free() && mProducerQueueOperations.is_lock_free();
+    }
+    [[nodiscard]] bool IsLockFree() const noexcept { return mQueue.IsLockFree() && ProducerAtomicsAreLockFreeForTest(); }
     [[nodiscard]] std::uint64_t InvalidIds() const noexcept { return mInvalidId.load(std::memory_order_relaxed); }
     [[nodiscard]] std::uint64_t InvalidPayloads() const noexcept { return mInvalidPayload.load(std::memory_order_relaxed); }
     [[nodiscard]] std::uint64_t Oversize() const noexcept { return mOversize.load(std::memory_order_relaxed); }
