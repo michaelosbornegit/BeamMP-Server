@@ -350,9 +350,15 @@ public:
     [[nodiscard]] bool RotateIfNeeded(const std::uint64_t currentMonoNs, const TraceRecordWriter::FooterMetrics& metrics,
         const std::filesystem::path& nextPartialPath) {
         if (!mEpoch || !mEpoch->ShouldRotate(mRotationPolicy, currentMonoNs)) return false;
+
+        // Opening the successor can fail because its name is already immutable
+        // evidence or its directory is no longer safe. Check that failure before
+        // finalizing the active epoch, so a failed rotation never stops capture.
+        auto nextEpoch = std::make_unique<TraceEpochFile>(nextPartialPath, currentMonoNs, mMaxPlayers, mMaxVehicles, mMaximumBytes);
+        if (!nextEpoch->IsOpen()) return false;
         if (!mEpoch->Finalize(metrics)) return false;
-        mEpoch.reset();
-        return Start(nextPartialPath, currentMonoNs);
+        mEpoch = std::move(nextEpoch);
+        return true;
     }
 
     [[nodiscard]] bool Finalize(const TraceRecordWriter::FooterMetrics& metrics) {

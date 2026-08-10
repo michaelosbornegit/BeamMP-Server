@@ -477,3 +477,26 @@ TEST_CASE("observer epoch lifecycle finalizes a rotated trace before resetting d
     CHECK_EQ(record["vehicle"], 0);
     std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("observer epoch lifecycle keeps its active epoch when a rotation successor cannot open") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-rotation-successor-failure-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto firstPartial = directory / "beammp-accepted-pose-first.ndjson.part";
+    const auto firstFinal = directory / "beammp-accepted-pose-first.ndjson";
+    const auto blockedNextPartial = directory / "beammp-accepted-pose-blocked.ndjson.part";
+    const auto blockedNextFinal = directory / "beammp-accepted-pose-blocked.ndjson";
+    std::ofstream(blockedNextFinal) << "preserve-existing-final";
+
+    beammp::observer::TraceEpochLifecycle lifecycle(
+        { .MaximumDurationNs = 1'000, .MaximumFileBytes = 0 }, 2, 3);
+    REQUIRE(lifecycle.Start(firstPartial, 10'000));
+
+    CHECK_FALSE(lifecycle.RotateIfNeeded(11'000, {}, blockedNextPartial));
+    CHECK(lifecycle.IsOpen());
+    CHECK(std::filesystem::exists(firstPartial));
+    CHECK_FALSE(std::filesystem::exists(firstFinal));
+    CHECK(std::filesystem::exists(blockedNextFinal));
+
+    REQUIRE(lifecycle.Finalize({}));
+    std::filesystem::remove_all(directory);
+}
