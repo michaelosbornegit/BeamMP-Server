@@ -381,3 +381,15 @@ TEST_CASE("observer trace finalization preserves a finalized file created after 
     CHECK_EQ(contents, "preserve-finalized-trace");
     std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("observer worker rotation reaches duration and size boundaries without unsigned timestamp wrap") {
+    const beammp::observer::TraceEpochRotationPolicy policy {
+        .MaximumDurationNs = 1'000,
+        .MaximumFileBytes = 600,
+    };
+
+    CHECK_FALSE(policy.ShouldRotate(10'000, 10'999, 599));
+    CHECK(policy.ShouldRotate(10'000, 11'000, 599));
+    CHECK(policy.ShouldRotate(10'000, 10'001, 600));
+    CHECK_FALSE(policy.ShouldRotate(10'000, 9'999, 599));
+}

@@ -150,6 +150,21 @@ public:
     }
 };
 
+// Worker-owned rotation decision. Producer timestamps can arrive out of order,
+// so an earlier timestamp must never underflow into a false rotation.
+struct TraceEpochRotationPolicy final {
+    std::uint64_t MaximumDurationNs {};
+    std::uintmax_t MaximumFileBytes {};
+
+    [[nodiscard]] bool ShouldRotate(const std::uint64_t traceStartMonoNs, const std::uint64_t currentMonoNs,
+        const std::uintmax_t currentFileBytes) const noexcept {
+        const bool durationReached = MaximumDurationNs != 0 && currentMonoNs >= traceStartMonoNs
+            && currentMonoNs - traceStartMonoNs >= MaximumDurationNs;
+        const bool sizeReached = MaximumFileBytes != 0 && currentFileBytes >= MaximumFileBytes;
+        return durationReached || sizeReached;
+    }
+};
+
 // Worker-side epoch file only. A trace remains a .part file unless a complete
 // allowlisted footer has been flushed and the atomic rename succeeds.
 class TraceEpochFile final {
