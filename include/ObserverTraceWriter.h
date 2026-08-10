@@ -9,8 +9,8 @@
 // Test-build-only worker-side record serializer. Never call from packet producers.
 #pragma once
 
-#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -21,10 +21,61 @@
 #include <string_view>
 #include <vector>
 
+#include "../observer/AcceptedPoseFeed.h"
 #include "ObserverTraceCapture.h"
 #include "ObserverTraceSanitizer.h"
 
 namespace beammp::observer {
+
+// Offline replay receives completed sanitizer output only; it does not accept
+// or serialize raw producer payloads.
+[[nodiscard]] inline std::optional<AcceptedPose> ReplaySanitizedTraceRecord(const std::string_view line) {
+    const auto input = nlohmann::json::parse(line, nullptr, false);
+    if (input.is_discarded() || !input.is_object()) return std::nullopt;
+
+    const auto unsignedValue = [&input](const char* key) -> std::optional<std::uint64_t> {
+        if (!input.contains(key)) return std::nullopt;
+        const auto& value = input[key];
+        if (value.is_number_unsigned()) return value.get<std::uint64_t>();
+        if (!value.is_number_integer()) return std::nullopt;
+        const auto signedValue = value.get<std::int64_t>();
+        if (signedValue < 0) return std::nullopt;
+        return static_cast<std::uint64_t>(signedValue);
+    };
+    const auto timestamp = unsignedValue("dt_us");
+    const auto player = unsignedValue("player");
+    const auto vehicle = unsignedValue("vehicle");
+    if (!timestamp || !player || !vehicle || *player > std::numeric_limits<std::uint16_t>::max() || *vehicle > std::numeric_limits<std::uint16_t>::max()) return std::nullopt;
+
+    const auto floats = [&input](const char* key, const std::size_t expectedSize) -> std::optional<std::vector<float>> {
+        if (!input.contains(key) || !input[key].is_array() || input[key].size() != expectedSize) return std::nullopt;
+        std::vector<float> result;
+        result.reserve(expectedSize);
+        for (const auto& value : input[key]) {
+            if (!value.is_number()) return std::nullopt;
+            const auto number = value.get<double>();
+            const auto converted = static_cast<float>(number);
+            if (!std::isfinite(number) || !std::isfinite(converted)) return std::nullopt;
+            result.push_back(converted);
+        }
+        return result;
+    };
+    const auto pos = floats("pos", 3);
+    const auto rot = floats("rot", 4);
+    const auto vel = floats("vel", 3);
+    const auto rvel = floats("rvel", 3);
+    if (!pos || !rot || !vel || !rvel) return std::nullopt;
+
+    return AcceptedPose {
+        .timestamp_us = *timestamp,
+        .player_id = static_cast<std::uint16_t>(*player),
+        .vehicle_id = static_cast<std::uint16_t>(*vehicle),
+        .position = { (*pos)[0], (*pos)[1], (*pos)[2] },
+        .rotation = { (*rot)[0], (*rot)[1], (*rot)[2], (*rot)[3] },
+        .velocity = { (*vel)[0], (*vel)[1], (*vel)[2] },
+        .angular_velocity = { (*rvel)[0], (*rvel)[1], (*rvel)[2] },
+    };
+}
 
 class TraceRecordWriter final {
 public:

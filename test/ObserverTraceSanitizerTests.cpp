@@ -65,6 +65,30 @@ TEST_CASE("observer worker serializes a queued record through the privacy allowl
     CHECK_FALSE(output.contains("ip"));
 }
 
+TEST_CASE("observer trace writer output replays through the bounded accepted-pose feed") {
+    beammp::observer::TraceRecordWriter writer(1'000'000, 2, 3);
+    beammp::observer::RawStoredPoseV1 record {};
+    record.AcceptedMonoNs = 1'020'000;
+    record.PlayerId = 42;
+    record.VehicleId = 9;
+    constexpr std::string_view raw = R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9],"ip":"never-copy","roles":["never-copy"]})";
+    record.PayloadSize = static_cast<std::uint16_t>(raw.size());
+    std::memcpy(record.RawPose.data(), raw.data(), raw.size());
+
+    const auto line = writer.Serialize(record);
+    REQUIRE(line.has_value());
+    const auto replayed = beammp::observer::ReplaySanitizedTraceRecord(*line);
+    REQUIRE(replayed.has_value());
+
+    beammp::observer::AcceptedPoseFeed feed({ .max_players = 2, .max_vehicles_per_player = 1 });
+    CHECK_EQ(feed.onAcceptedPose(*replayed), beammp::observer::FeedResult::accepted);
+    const auto latest = feed.latest(0, 0);
+    REQUIRE(latest.has_value());
+    CHECK_EQ(latest->timestamp_us, 20);
+    CHECK_EQ(latest->position[0], 1.0F);
+    CHECK_EQ(latest->angular_velocity[2], 9.0F);
+}
+
 TEST_CASE("observer trace writer emits a privacy-minimized epoch header") {
     beammp::observer::TraceRecordWriter writer(1'000'000, 2, 3);
 

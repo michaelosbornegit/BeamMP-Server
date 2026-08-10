@@ -90,8 +90,8 @@ set(PRJ_SOURCES
 
 set(OBSERVER_TRACE_TEST_SOURCES)
 if(BEAMMP_OBSERVER_TRACE_TEST_ONLY)
-    list(APPEND PRJ_HEADERS include/ObserverTraceCapture.h include/ObserverTraceMpscQueue.h include/ObserverTraceSanitizer.h include/ObserverTraceWriter.h)
-    list(APPEND OBSERVER_TRACE_TEST_SOURCES test/ObserverTraceCaptureTests.cpp test/ObserverTraceSanitizerTests.cpp)
+    list(APPEND PRJ_HEADERS include/ObserverTraceCapture.h include/ObserverTraceMpscQueue.h include/ObserverTraceSanitizer.h include/ObserverTraceWriter.h observer/AcceptedPoseFeed.h)
+    list(APPEND OBSERVER_TRACE_TEST_SOURCES test/ObserverTraceCaptureTests.cpp test/ObserverTraceSanitizerTests.cpp observer/AcceptedPoseFeed.cpp)
 endif()
 
 find_package(Lua REQUIRED)
