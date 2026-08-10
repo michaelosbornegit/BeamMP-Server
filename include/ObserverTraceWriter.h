@@ -73,6 +73,14 @@ public:
         if (std::filesystem::is_symlink(partialStatus) || (statusError && statusError != std::errc::no_such_file_or_directory)) return;
         mStream.open(mPartialPath, std::ios::out | std::ios::trunc);
         if (!mStream.is_open()) return;
+        std::error_code permissionError;
+        std::filesystem::permissions(mPartialPath,
+            std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+            std::filesystem::perm_options::replace, permissionError);
+        if (permissionError) {
+            mStream.close();
+            return;
+        }
         mStream << mWriter.Header() << '\n';
         mOpen = static_cast<bool>(mStream);
         if (!mOpen) mStream.close();

@@ -7,6 +7,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <sys/stat.h>
 
 TEST_CASE("observer sanitizer emits relative allowlisted trace records") {
     beammp::observer::TraceSanitizer sanitizer(1'000'000, 2, 3);
@@ -119,6 +120,27 @@ TEST_CASE("observer trace epoch remains partial until the privacy-safe footer is
     REQUIRE(std::getline(trace, line));
     CHECK_EQ(nlohmann::json::parse(line)["footer"], "beammp.accepted-pose/v1");
     CHECK_FALSE(std::getline(trace, line));
+    std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("observer trace epoch creates partial and finalized traces owner-readable only") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-modes-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto partial = directory / "beammp-accepted-pose-test.ndjson.part";
+    const auto finalized = directory / "beammp-accepted-pose-test.ndjson";
+
+    {
+        beammp::observer::TraceEpochFile epoch(partial, 1'000'000, 2, 3);
+        REQUIRE(epoch.IsOpen());
+        struct stat partialStatus {};
+        REQUIRE_EQ(::stat(partial.c_str(), &partialStatus), 0);
+        CHECK_EQ(partialStatus.st_mode & 0777, 0600);
+        CHECK(epoch.Finalize({}));
+    }
+
+    struct stat finalizedStatus {};
+    REQUIRE_EQ(::stat(finalized.c_str(), &finalizedStatus), 0);
+    CHECK_EQ(finalizedStatus.st_mode & 0777, 0600);
     std::filesystem::remove_all(directory);
 }
 
