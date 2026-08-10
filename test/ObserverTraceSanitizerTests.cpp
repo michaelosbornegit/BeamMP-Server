@@ -283,3 +283,25 @@ TEST_CASE("observer retention trims only the oldest finalized traces to the tota
     CHECK_EQ(contents, "preserve");
     std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("observer trace finalization preserves a finalized file created after epoch open") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-finalize-race-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto partial = directory / "beammp-accepted-pose-test.ndjson.part";
+    const auto finalized = directory / "beammp-accepted-pose-test.ndjson";
+
+    {
+        beammp::observer::TraceEpochFile epoch(partial, 1'000'000, 2, 3);
+        REQUIRE(epoch.IsOpen());
+        std::ofstream(finalized) << "preserve-finalized-trace";
+
+        CHECK_FALSE(epoch.Finalize({}));
+        CHECK(std::filesystem::exists(partial));
+    }
+
+    std::ifstream existing(finalized);
+    std::string contents;
+    std::getline(existing, contents);
+    CHECK_EQ(contents, "preserve-finalized-trace");
+    std::filesystem::remove_all(directory);
+}

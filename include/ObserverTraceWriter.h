@@ -209,8 +209,19 @@ public:
         if (!mStream) return false;
         mStream.close();
         std::error_code error;
-        std::filesystem::rename(mPartialPath, mFinalPath, error);
-        if (error) return false;
+        // rename() can replace an existing destination on POSIX. Atomically
+        // create the final name as a hard link instead: it fails if another
+        // actor created the immutable finalized trace after this epoch opened.
+        std::filesystem::create_hard_link(mPartialPath, mFinalPath, error);
+        if (error) {
+            mOpen = false;
+            return false;
+        }
+        std::filesystem::remove(mPartialPath, error);
+        if (error) {
+            mOpen = false;
+            return false;
+        }
         mFinalized = true;
         mOpen = false;
         return true;
