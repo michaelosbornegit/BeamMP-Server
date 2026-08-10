@@ -64,6 +64,9 @@ public:
     void SetObserverTraceEnabledForTest(const bool enabled) noexcept { mObserverTraceCapture->SetEnabledForTest(enabled); }
     void ForceObserverTraceNonLockFreeForTest() noexcept { mObserverTraceCapture->ForceNonLockFreeForTest(); }
     [[nodiscard]] bool TryPopObserverTraceForTest(beammp::observer::RawStoredPoseV1& output) noexcept { return mObserverTraceCapture->TryPopForTest(output); }
+    [[nodiscard]] bool HandleObserverTracePoseForTest(const std::int32_t playerId, const std::int32_t vehicleId, const std::string_view pose, const std::uint64_t acceptedMonoNs) noexcept {
+        return mObserverTraceCapture->TryCaptureStoredPose(playerId, vehicleId, pose, acceptedMonoNs);
+    }
     void HandlePositionForTest(TClient& client, const std::string& packet) { HandlePosition(client, packet); }
     [[nodiscard]] bool StartObserverTraceForTest(beammp::observer::TraceCaptureConfiguration configuration, std::string_view partialFilename, std::uint64_t traceStartMonoNs) {
         if (mObserverTraceRuntime) return false;
@@ -88,8 +91,13 @@ public:
     // draining and file finalization remain asynchronous.
     [[nodiscard]] std::string RunObserverTraceCommandForTest(const std::string_view command) noexcept {
         if (command == "status") {
+            const auto metrics = mObserverTraceCapture->MetricsForTest();
             return std::string("observertrace ") + (mObserverTraceCapture->IsEnabled() ? "enabled " : "disabled ")
-                + (mObserverTraceRuntime ? "running" : "idle");
+                + (mObserverTraceRuntime ? "running" : "idle")
+                + " accepted=" + std::to_string(metrics.QueuedSuccesses)
+                + " pending=" + std::to_string(metrics.Pending)
+                + " evicted=" + std::to_string(metrics.EvictedOldest)
+                + " contention_drop=" + std::to_string(metrics.ContentionDrops);
         }
         if (command == "off") {
             mObserverTraceCapture->Disable();

@@ -359,9 +359,21 @@ TEST_CASE("observer server runtime starts a fresh trace epoch after stop") {
 TEST_CASE("observer runtime status command exposes only capture state and aggregate lifecycle state") {
     TServer server({});
 
-    CHECK_EQ(server.RunObserverTraceCommandForTest("status"), "observertrace disabled idle");
+    CHECK_EQ(server.RunObserverTraceCommandForTest("status"), "observertrace disabled idle accepted=0 pending=0 evicted=0 contention_drop=0");
     CHECK_EQ(server.RunObserverTraceCommandForTest("off"), "observertrace disabled");
     CHECK_EQ(server.RunObserverTraceCommandForTest("invalid"), "observertrace invalid command");
+}
+
+TEST_CASE("observer runtime status reports aggregate counters without payload data") {
+    TServer server({});
+    server.SetObserverTraceEnabledForTest(true);
+    REQUIRE(server.HandleObserverTracePoseForTest(7, 12, R"({"ip":"private","pos":[1,2,3]})", 10));
+
+    const auto status = server.RunObserverTraceCommandForTest("status");
+    CHECK(status.find("accepted=1") != std::string::npos);
+    CHECK(status.find("pending=1") != std::string::npos);
+    CHECK(status.find("private") == std::string::npos);
+    CHECK(status.find("pos") == std::string::npos);
 }
 
 TEST_CASE("observer runtime off command disables producers and finalizes asynchronously") {
