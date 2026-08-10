@@ -59,6 +59,8 @@ The original Boost fixed-size queue was rejected after ThreadSanitizer reported 
 
 **2026-08-10 status-progress checkpoint:** `observertrace status` now exposes only aggregate `file_bytes` and `elapsed_seconds` in addition to existing lifecycle/counter fields; it exposes no directory, filename, payload, identity, or configuration value. The focused Release-active test was RED first (both fields absent), then GREEN after writer-owned values were published through atomics. Full pinned GCC 14.3 Release CTest passed OFF **1/1** and ON **2/2** (the observer suite now has **66 cases / 8,606 assertions**). This is local test-only source work only: no server/image/configuration access, deployment, or real trace capture occurred.
 
+**2026-08-10 current-head release revalidation:** at `37a60036f0b59b74cd755453ac7834a8dca7bae0`, the existing pinned GCC 14.3 Release build trees rebuilt cleanly and `ctest --output-on-failure` passed OFF **1/1** and ON **2/2** (including `ObserverTrace`). The OFF compile database and `BeamMP-Server` symbol table each had **0** observer entries; the ON build had **9** observer compile entries and **37** observer symbols. This evidence revalidates the local compilation boundary only. It is not an A/B non-interference measurement, image build, Server4 preflight, configuration access, deployment, or real trace capture.
+
 ## Scope
 
 This work remains limited to local source/test verification. It does not authorize any public-server action, Server4 inspection/configuration/restart, container/image build or push, deployment, trace capture, or sensitive-config access. A separately approved, documented Server4 manifest is required after all local gates pass.
