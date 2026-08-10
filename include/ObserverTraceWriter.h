@@ -467,6 +467,24 @@ public:
     TraceCaptureWorker(ObserverTraceCapture& capture, TraceEpochLifecycle& lifecycle) noexcept
         : mCapture(capture), mLifecycle(lifecycle) { }
 
+    // One worker-owned drain step. A successful queue pop transfers only the
+    // fixed raw record to the lifecycle, where sanitization reconstructs the
+    // allowlisted line. Any append failure is a writer fault: fail closed before
+    // a producer can publish another record, preserve the active .part, and
+    // discard pending raw records without finalizing them.
+    [[nodiscard]] bool DrainOne() noexcept {
+        RawStoredPoseV1 record {};
+        if (!mCapture.TryPopForTest(record)) return false;
+        if (!mLifecycle.Append(std::string_view(record.RawPose.data(), record.PayloadSize), record.PlayerId, record.VehicleId, record.AcceptedMonoNs)) {
+            AbortForWriterFault();
+            return false;
+        }
+        ++mWritten;
+        return true;
+    }
+
+    [[nodiscard]] std::uint64_t Written() const noexcept { return mWritten; }
+
     void AbortForWriterFault() noexcept {
         mCapture.Disable();
         mLifecycle.Abort();
@@ -479,6 +497,7 @@ public:
 private:
     ObserverTraceCapture& mCapture;
     TraceEpochLifecycle& mLifecycle;
+    std::uint64_t mWritten {};
     std::uint64_t mDiscardedAfterFault {};
 };
 

@@ -598,3 +598,33 @@ TEST_CASE("observer writer fault leaves the current trace identifiable as an unf
 
     std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("observer worker drains a queued accepted pose into its active privacy-safe epoch") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-worker-drain-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto partial = directory / "beammp-accepted-pose-drain.ndjson.part";
+    const auto finalized = directory / "beammp-accepted-pose-drain.ndjson";
+    constexpr std::string_view raw = R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9],"ip":"never-copy"})";
+
+    beammp::observer::ObserverTraceCapture capture;
+    capture.SetEnabledForTest(true);
+    REQUIRE(capture.TryCaptureStoredPose(42, 9, raw, 1'020'000));
+    beammp::observer::TraceEpochLifecycle lifecycle({}, 2, 3);
+    REQUIRE(lifecycle.Start(partial, 1'000'000));
+    beammp::observer::TraceCaptureWorker worker(capture, lifecycle);
+
+    REQUIRE(worker.DrainOne());
+    CHECK_EQ(capture.PendingForTest(), 0);
+    CHECK_EQ(worker.Written(), 1);
+    REQUIRE(lifecycle.Finalize({ .Accepted = 1, .Written = worker.Written(), .DurationUs = 20'000 }));
+
+    std::ifstream trace(finalized);
+    std::string line;
+    REQUIRE(std::getline(trace, line)); // header
+    REQUIRE(std::getline(trace, line));
+    const auto record = nlohmann::json::parse(line);
+    CHECK_EQ(record["player"], 0);
+    CHECK_EQ(record["vehicle"], 0);
+    CHECK_FALSE(record.contains("ip"));
+    std::filesystem::remove_all(directory);
+}
