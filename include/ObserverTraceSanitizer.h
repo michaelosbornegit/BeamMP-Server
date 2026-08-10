@@ -31,11 +31,13 @@ public:
         const auto rot = NumericArray(input, "rot", 4);
         const auto vel = NumericArray(input, "vel", 3);
         const auto rvel = NumericArray(input, "rvel", 3);
-        const auto player = DenseId(mPlayers, rawPlayer, mMaxPlayers);
-        const auto vehicle = DenseId(mVehicles, std::make_pair(rawPlayer, rawVehicle), mMaxVehicles);
-        if (!pos || !rot || !vel || !rvel || !player || !vehicle) {
+        const auto vehicleKey = std::make_pair(rawPlayer, rawVehicle);
+        if (!pos || !rot || !vel || !rvel || !CanAssignDenseId(mPlayers, rawPlayer, mMaxPlayers)
+            || !CanAssignDenseId(mVehicles, vehicleKey, mMaxVehicles)) {
             return std::nullopt;
         }
+        const auto player = DenseId(mPlayers, rawPlayer, mMaxPlayers);
+        const auto vehicle = DenseId(mVehicles, vehicleKey, mMaxVehicles);
 
         nlohmann::json output = {
             {"dt_us", (acceptedMonoNs - mTraceStartMonoNs) / 1000},
@@ -59,6 +61,11 @@ private:
             output.push_back(number);
         }
         return std::optional<nlohmann::json> { std::move(output) };
+    }
+
+    template <typename T>
+    static bool CanAssignDenseId(const std::map<T, std::int32_t>& ids, const T& raw, const std::size_t maximum) {
+        return ids.contains(raw) || (ids.size() < maximum && ids.size() <= static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()));
     }
 
     template <typename T>

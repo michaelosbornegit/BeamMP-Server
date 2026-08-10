@@ -34,6 +34,18 @@ TEST_CASE("observer sanitizer rejects pre-epoch and over-cap identities") {
     CHECK_FALSE(sanitizer.Sanitize(2, 2, 1'001, raw).has_value());
 }
 
+TEST_CASE("observer sanitizer does not consume a vehicle identity when its player identity is rejected") {
+    beammp::observer::TraceSanitizer sanitizer(1'000, 1, 2);
+    constexpr std::string_view raw = R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})";
+
+    REQUIRE(sanitizer.Sanitize(1, 1, 1'000, raw).has_value());
+    CHECK_FALSE(sanitizer.Sanitize(2, 2, 1'001, raw).has_value());
+
+    const auto accepted = sanitizer.Sanitize(1, 2, 1'002, raw);
+    REQUIRE(accepted.has_value());
+    CHECK_EQ(nlohmann::json::parse(*accepted)["vehicle"], 1);
+}
+
 TEST_CASE("observer worker serializes a queued record through the privacy allowlist") {
     beammp::observer::TraceRecordWriter writer(1'000'000, 2, 3);
     beammp::observer::RawStoredPoseV1 record {};
