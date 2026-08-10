@@ -363,7 +363,7 @@ TEST_CASE("observer server runtime starts a fresh trace epoch after stop") {
 TEST_CASE("observer runtime status command exposes only capture state and aggregate lifecycle state") {
     TServer server({});
 
-    CHECK_EQ(server.RunObserverTraceCommandForTest("status"), "observertrace disabled idle accepted=0 pending=0 invalid_id=0 invalid_payload=0 oversize=0 evicted=0 contention_drop=0");
+    CHECK_EQ(server.RunObserverTraceCommandForTest("status"), "observertrace disabled idle accepted=0 pending=0 invalid_id=0 invalid_payload=0 oversize=0 evicted=0 contention_drop=0 file_bytes=0 elapsed_seconds=0");
     CHECK_EQ(server.RunObserverTraceCommandForTest("off"), "observertrace disabled");
     CHECK_EQ(server.RunObserverTraceCommandForTest("on"), "observertrace unavailable");
     CHECK_FALSE(server.ObserverTraceCaptureEnabledForTest());
@@ -380,6 +380,29 @@ TEST_CASE("observer runtime status reports aggregate counters without payload da
     CHECK(status.find("pending=1") != std::string::npos);
     CHECK(status.find("private") == std::string::npos);
     CHECK(status.find("pos") == std::string::npos);
+}
+
+TEST_CASE("observer runtime status reports only aggregate current trace progress") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-server-status-progress-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const beammp::observer::TraceCaptureConfiguration configuration {
+        .Enabled = true,
+        .Directory = directory,
+        .MaximumSeconds = 10,
+        .MaximumFileMiB = 16,
+        .MaximumTotalMiB = 16,
+        .MaximumAgeHours = 1,
+    };
+
+    TServer server({});
+    REQUIRE(server.StartObserverTraceForTest(configuration, "beammp-accepted-pose-status-progress.ndjson.part", 1'000'000));
+
+    const auto status = server.RunObserverTraceCommandForTest("status");
+    CHECK(status.find("file_bytes=") != std::string::npos);
+    CHECK(status.find("elapsed_seconds=") != std::string::npos);
+    CHECK(status.find(directory.string()) == std::string::npos);
+    server.StopObserverTraceForTest();
+    std::filesystem::remove_all(directory);
 }
 
 TEST_CASE("observer runtime status reports all privacy-safe rejection counters") {
@@ -459,7 +482,7 @@ TEST_CASE("observer console command accepts only one approved control token") {
     TServer server({});
 
     CHECK_EQ(TConsole::DispatchObserverTraceCommandForTest(server, { "status" }),
-        "observertrace disabled idle accepted=0 pending=0 invalid_id=0 invalid_payload=0 oversize=0 evicted=0 contention_drop=0");
+        "observertrace disabled idle accepted=0 pending=0 invalid_id=0 invalid_payload=0 oversize=0 evicted=0 contention_drop=0 file_bytes=0 elapsed_seconds=0");
     CHECK_EQ(TConsole::DispatchObserverTraceCommandForTest(server, { "off", "extra" }),
         "observertrace invalid command");
 }

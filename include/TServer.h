@@ -116,6 +116,8 @@ public:
                 + " oversize=" + std::to_string(mObserverTraceCapture->Oversize())
                 + " evicted=" + std::to_string(metrics.EvictedOldest)
                 + " contention_drop=" + std::to_string(metrics.ContentionDrops)
+                + " file_bytes=" + std::to_string(mObserverTraceRuntime ? mObserverTraceRuntime->CurrentFileBytes() : 0)
+                + " elapsed_seconds=" + std::to_string(mObserverTraceRuntime ? mObserverTraceRuntime->ElapsedSeconds() : 0)
                 + (mObserverTraceRuntime && mObserverTraceRuntime->WriterFaulted() ? " writer=faulted" : "");
         }
         if (command == "off") {

@@ -511,6 +511,7 @@ public:
     }
 
     [[nodiscard]] bool IsOpen() const noexcept { return static_cast<bool>(mEpoch); }
+    [[nodiscard]] std::uintmax_t CurrentFileBytes() const noexcept { return mEpoch ? mEpoch->BytesWritten() : 0; }
 
 private:
     TraceEpochRotationPolicy mRotationPolicy;
@@ -589,8 +590,8 @@ private:
 // before finalizing the active epoch on this non-producer thread.
 class TraceCaptureWorkerThread final {
 public:
-    TraceCaptureWorkerThread(ObserverTraceCapture& capture, TraceEpochLifecycle& lifecycle) noexcept
-        : mCapture(capture), mLifecycle(lifecycle), mWorker(capture, lifecycle) { }
+    TraceCaptureWorkerThread(ObserverTraceCapture& capture, TraceEpochLifecycle& lifecycle, const std::uint64_t traceStartMonoNs = 0) noexcept
+        : mCapture(capture), mLifecycle(lifecycle), mWorker(capture, lifecycle), mTraceStartMonoNs(traceStartMonoNs) { }
 
     ~TraceCaptureWorkerThread() { StopAndJoin(); }
 
@@ -626,6 +627,8 @@ public:
     [[nodiscard]] std::uint64_t Written() const noexcept { return mWorker.Written(); }
     [[nodiscard]] bool Finalized() const noexcept { return mFinalized.load(std::memory_order_acquire); }
     [[nodiscard]] bool Faulted() const noexcept { return mFaulted.load(std::memory_order_acquire); }
+    [[nodiscard]] std::uintmax_t CurrentFileBytes() const noexcept { return mCurrentFileBytes.load(std::memory_order_acquire); }
+    [[nodiscard]] std::uint64_t ElapsedSeconds() const noexcept { return mElapsedSeconds.load(std::memory_order_acquire); }
 
 private:
     static constexpr std::size_t kDrainBatchSize = 64;
@@ -637,6 +640,7 @@ private:
                 mFaulted.store(true, std::memory_order_release);
             }
             const auto drained = mWorker.DrainAtMost(kDrainBatchSize);
+            UpdateProgress();
             if (mWorker.Faulted()) mFaulted.store(true, std::memory_order_release);
             if ((mStopRequested.load(std::memory_order_acquire) || !mCapture.IsEnabled()) && mCapture.PendingForTest() == 0
                 && mCapture.ActiveProducersForTest() == 0) break;
@@ -673,6 +677,14 @@ private:
             .EvictedOldest = metrics.EvictedOldest,
             .ContentionDrops = metrics.ContentionDrops,
         }), std::memory_order_release);
+        UpdateProgress();
+    }
+
+    void UpdateProgress() noexcept {
+        mCurrentFileBytes.store(mLifecycle.CurrentFileBytes(), std::memory_order_release);
+        const auto nowNs = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        const auto currentMonoNs = static_cast<std::uint64_t>(nowNs);
+        mElapsedSeconds.store(mTraceStartMonoNs != 0 && currentMonoNs >= mTraceStartMonoNs ? (currentMonoNs - mTraceStartMonoNs) / 1'000'000'000ULL : 0, std::memory_order_release);
     }
 
     ObserverTraceCapture& mCapture;
@@ -684,6 +696,9 @@ private:
     std::atomic<bool> mFaulted { false };
     std::atomic<std::uint64_t> mShutdownDeadlineNs { std::numeric_limits<std::uint64_t>::max() };
     std::atomic<std::uint64_t> mFinalizationDelayMs { 0 };
+    std::atomic<std::uintmax_t> mCurrentFileBytes { 0 };
+    std::atomic<std::uint64_t> mElapsedSeconds { 0 };
+    std::uint64_t mTraceStartMonoNs {};
     std::thread mThread;
 };
 
@@ -715,7 +730,7 @@ public:
             mMaxPlayers, mMaxVehicles, maximumBytes);
         if (!lifecycle->Start(partialPath, traceStartMonoNs)) return false;
 
-        auto worker = std::make_unique<TraceCaptureWorkerThread>(mCapture, *lifecycle);
+        auto worker = std::make_unique<TraceCaptureWorkerThread>(mCapture, *lifecycle, traceStartMonoNs);
         mCapture.SetEnabledForTest(true);
         worker->Start();
         mLifecycle = std::move(lifecycle);
@@ -738,6 +753,12 @@ public:
 
     [[nodiscard]] bool WriterFaulted() const noexcept {
         return mWorker && mWorker->Faulted();
+    }
+    [[nodiscard]] std::uintmax_t CurrentFileBytes() const noexcept {
+        return mWorker ? mWorker->CurrentFileBytes() : 0;
+    }
+    [[nodiscard]] std::uint64_t ElapsedSeconds() const noexcept {
+        return mWorker ? mWorker->ElapsedSeconds() : 0;
     }
 
     void RequestWriterFaultForTest() noexcept {
