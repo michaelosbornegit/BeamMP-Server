@@ -4,6 +4,10 @@
 #include <doctest/doctest.h>
 #include <nlohmann/json.hpp>
 
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+
 TEST_CASE("observer sanitizer emits relative allowlisted trace records") {
     beammp::observer::TraceSanitizer sanitizer(1'000'000, 2, 3);
     const auto line = sanitizer.Sanitize(42, 9, 1'020'000, R"({"tim":1.25,"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9],"ip":"never-copy","key":"never-copy","admin":true,"nested":{"chat":"never-copy"}})");
@@ -87,4 +91,46 @@ TEST_CASE("observer trace writer footer contains only aggregate lifecycle eviden
     CHECK_FALSE(footer.contains("vehicle"));
     CHECK_FALSE(footer.contains("path"));
     CHECK_FALSE(footer.contains("error"));
+}
+
+TEST_CASE("observer trace epoch remains partial until the privacy-safe footer is finalized") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-trace-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto partial = directory / "beammp-accepted-pose-test.ndjson.part";
+    const auto finalized = directory / "beammp-accepted-pose-test.ndjson";
+
+    {
+        beammp::observer::TraceEpochFile epoch(partial, 1'000'000, 2, 3);
+        REQUIRE(epoch.IsOpen());
+        CHECK(std::filesystem::exists(partial));
+        CHECK_FALSE(std::filesystem::exists(finalized));
+        REQUIRE(epoch.Append(R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})", 42, 9, 1'020'000));
+        CHECK(epoch.Finalize({ .Accepted = 1, .Written = 1, .DurationUs = 20'000 }));
+    }
+
+    CHECK_FALSE(std::filesystem::exists(partial));
+    REQUIRE(std::filesystem::exists(finalized));
+    std::ifstream trace(finalized);
+    std::string line;
+    REQUIRE(std::getline(trace, line));
+    CHECK_EQ(nlohmann::json::parse(line)["schema"], "beammp.accepted-pose/v1");
+    REQUIRE(std::getline(trace, line));
+    CHECK_EQ(nlohmann::json::parse(line)["player"], 0);
+    REQUIRE(std::getline(trace, line));
+    CHECK_EQ(nlohmann::json::parse(line)["footer"], "beammp.accepted-pose/v1");
+    CHECK_FALSE(std::getline(trace, line));
+    std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("observer trace epoch refuses non-partial filenames without creating a file") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-invalid-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto unsafe = directory / "not-an-observer-trace.ndjson";
+
+    {
+        beammp::observer::TraceEpochFile epoch(unsafe, 1'000'000, 2, 3);
+        CHECK_FALSE(epoch.IsOpen());
+    }
+    CHECK_FALSE(std::filesystem::exists(unsafe));
+    std::filesystem::remove_all(directory);
 }

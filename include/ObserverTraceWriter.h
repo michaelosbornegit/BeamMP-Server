@@ -10,6 +10,8 @@
 #pragma once
 
 #include <cstddef>
+#include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -57,6 +59,71 @@ public:
 
 private:
     TraceSanitizer mSanitizer;
+};
+
+// Worker-side epoch file only. A trace remains a .part file unless a complete
+// allowlisted footer has been flushed and the atomic rename succeeds.
+class TraceEpochFile final {
+public:
+    TraceEpochFile(const std::filesystem::path& partialPath, const std::uint64_t traceStartMonoNs, const std::size_t maxPlayers, const std::size_t maxVehicles)
+        : mPartialPath(partialPath), mFinalPath(FinalPath(partialPath)), mWriter(traceStartMonoNs, maxPlayers, maxVehicles) {
+        if (mPartialPath.extension() != ".part") return;
+        mStream.open(mPartialPath, std::ios::out | std::ios::trunc);
+        if (!mStream.is_open()) return;
+        mStream << mWriter.Header() << '\n';
+        mOpen = static_cast<bool>(mStream);
+        if (!mOpen) mStream.close();
+    }
+
+    ~TraceEpochFile() { if (mStream.is_open()) mStream.close(); }
+
+    TraceEpochFile(const TraceEpochFile&) = delete;
+    TraceEpochFile& operator=(const TraceEpochFile&) = delete;
+
+    [[nodiscard]] bool IsOpen() const noexcept { return mOpen; }
+
+    [[nodiscard]] bool Append(const std::string_view rawPose, const std::int32_t playerId, const std::int32_t vehicleId, const std::uint64_t acceptedMonoNs) {
+        if (!mOpen) return false;
+        RawStoredPoseV1 record {};
+        if (rawPose.size() > record.RawPose.size()) return false;
+        record.PlayerId = playerId;
+        record.VehicleId = vehicleId;
+        record.AcceptedMonoNs = acceptedMonoNs;
+        record.PayloadSize = static_cast<std::uint16_t>(rawPose.size());
+        std::memcpy(record.RawPose.data(), rawPose.data(), rawPose.size());
+        const auto line = mWriter.Serialize(record);
+        if (!line) return false;
+        mStream << *line << '\n';
+        return static_cast<bool>(mStream);
+    }
+
+    [[nodiscard]] bool Finalize(const TraceRecordWriter::FooterMetrics& metrics) {
+        if (!mOpen || mFinalized) return false;
+        mStream << mWriter.Footer(metrics) << '\n';
+        mStream.flush();
+        if (!mStream) return false;
+        mStream.close();
+        std::error_code error;
+        std::filesystem::rename(mPartialPath, mFinalPath, error);
+        if (error) return false;
+        mFinalized = true;
+        mOpen = false;
+        return true;
+    }
+
+private:
+    [[nodiscard]] static std::filesystem::path FinalPath(const std::filesystem::path& partialPath) {
+        auto result = partialPath;
+        result.replace_extension();
+        return result;
+    }
+
+    std::filesystem::path mPartialPath;
+    std::filesystem::path mFinalPath;
+    TraceRecordWriter mWriter;
+    std::ofstream mStream;
+    bool mOpen { false };
+    bool mFinalized { false };
 };
 
 } // namespace beammp::observer
