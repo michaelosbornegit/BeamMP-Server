@@ -114,6 +114,7 @@ public:
     // The writer or shutdown context can stop new producer publication with a
     // single release-store; it never waits for producer activity.
     void Disable() noexcept { mEnabled.store(false, std::memory_order_release); }
+    [[nodiscard]] bool IsEnabled() const noexcept { return mEnabled.load(std::memory_order_acquire); }
     void SetEnabledForTest(bool enabled) noexcept { mEnabled.store(enabled, std::memory_order_release); }
     // Test-only hardware-failure seam: startup must fail closed rather than
     // silently replacing the fixed queue with a blocking alternative.

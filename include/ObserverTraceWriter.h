@@ -619,7 +619,7 @@ private:
     void Run() noexcept {
         for (;;) {
             const auto drained = mWorker.DrainAtMost(kDrainBatchSize);
-            if (mStopRequested.load(std::memory_order_acquire) && mCapture.PendingForTest() == 0
+            if ((mStopRequested.load(std::memory_order_acquire) || !mCapture.IsEnabled()) && mCapture.PendingForTest() == 0
                 && mCapture.ActiveProducersForTest() == 0) break;
             if (drained == 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }

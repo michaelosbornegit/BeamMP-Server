@@ -656,6 +656,34 @@ TEST_CASE("observer worker thread drains queued poses and finalizes only after p
     std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("observer worker asynchronously finalizes after the producer kill switch") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-worker-kill-switch-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto partial = directory / "beammp-accepted-pose-kill-switch.ndjson.part";
+    const auto finalized = directory / "beammp-accepted-pose-kill-switch.ndjson";
+    constexpr std::string_view raw = R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})";
+
+    beammp::observer::ObserverTraceCapture capture;
+    beammp::observer::TraceEpochLifecycle lifecycle({}, 2, 3);
+    REQUIRE(lifecycle.Start(partial, 1'000'000));
+    beammp::observer::TraceCaptureWorkerThread worker(capture, lifecycle);
+    capture.SetEnabledForTest(true);
+    worker.Start();
+    REQUIRE(capture.TryCaptureStoredPose(7, 9, raw, 1'020'000));
+
+    capture.Disable();
+    CHECK_FALSE(capture.TryCaptureStoredPose(7, 10, raw, 1'030'000));
+    for (std::size_t attempt = 0; attempt < 1'000 && !worker.Finalized(); ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    CHECK(worker.Finalized());
+    worker.StopAndJoin();
+    CHECK(std::filesystem::exists(finalized));
+    CHECK_FALSE(std::filesystem::exists(partial));
+    std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("observer startup configuration enables capture only for a dedicated absolute directory") {
     const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-config-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
