@@ -151,6 +151,20 @@ TEST_CASE("observer trace epoch refuses an append that would exceed its finalize
     std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("observer trace epoch that cannot fit its privacy header leaves no empty partial trace") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-header-budget-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto partial = directory / "beammp-accepted-pose-test.ndjson.part";
+
+    {
+        beammp::observer::TraceEpochFile epoch(partial, 1'000'000, 2, 3, 1);
+        CHECK_FALSE(epoch.IsOpen());
+    }
+
+    CHECK_FALSE(std::filesystem::exists(partial));
+    std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("observer trace epoch refuses to overwrite an existing finalized trace") {
     const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-no-overwrite-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);

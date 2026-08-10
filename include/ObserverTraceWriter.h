@@ -183,6 +183,9 @@ public:
         const auto header = mWriter.Header();
         if (!BytesFit(header.size() + 1, 0)) {
             mStream.close();
+            // No header or sample was committed, so this newly-created empty
+            // partial is not recovery evidence and must not consume its name.
+            std::filesystem::remove(mPartialPath, permissionError);
             return;
         }
         mStream << header << '\n';
