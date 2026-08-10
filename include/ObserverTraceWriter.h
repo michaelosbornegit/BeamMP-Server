@@ -675,15 +675,19 @@ public:
         worker->Start();
         mLifecycle = std::move(lifecycle);
         mWorker = std::move(worker);
+        mFinalized = false;
         return true;
     }
 
     void StopAndJoin() noexcept {
         if (!mWorker) return;
         mWorker->StopAndJoin();
+        mFinalized = mWorker->Finalized();
+        mWorker.reset();
+        mLifecycle.reset();
     }
 
-    [[nodiscard]] bool Finalized() const noexcept { return mWorker && mWorker->Finalized(); }
+    [[nodiscard]] bool Finalized() const noexcept { return mFinalized; }
 
 private:
     [[nodiscard]] bool HasDedicatedDirectory() const noexcept {
@@ -699,6 +703,7 @@ private:
     std::size_t mMaxVehicles {};
     std::unique_ptr<TraceEpochLifecycle> mLifecycle;
     std::unique_ptr<TraceCaptureWorkerThread> mWorker;
+    bool mFinalized {};
 };
 
 } // namespace beammp::observer
