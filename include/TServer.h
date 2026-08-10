@@ -62,6 +62,7 @@ public:
     // Narrow test seam for proving the production post-store boundary without
     // exposing it in a normal build.
     void SetObserverTraceEnabledForTest(const bool enabled) noexcept { mObserverTraceCapture->SetEnabledForTest(enabled); }
+    void ForceObserverTraceNonLockFreeForTest() noexcept { mObserverTraceCapture->ForceNonLockFreeForTest(); }
     [[nodiscard]] bool TryPopObserverTraceForTest(beammp::observer::RawStoredPoseV1& output) noexcept { return mObserverTraceCapture->TryPopForTest(output); }
     void HandlePositionForTest(TClient& client, const std::string& packet) { HandlePosition(client, packet); }
     [[nodiscard]] bool StartObserverTraceForTest(beammp::observer::TraceCaptureConfiguration configuration, std::string_view partialFilename, std::uint64_t traceStartMonoNs) {

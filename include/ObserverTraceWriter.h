@@ -659,7 +659,7 @@ public:
     TraceCaptureRuntime& operator=(const TraceCaptureRuntime&) = delete;
 
     [[nodiscard]] bool StartForTest(const std::string_view partialFilename, const std::uint64_t traceStartMonoNs) {
-        if (mWorker || !mConfiguration.Enabled || !HasDedicatedDirectory() || partialFilename.empty()) return false;
+        if (mWorker || !mCapture.IsLockFree() || !mConfiguration.Enabled || !HasDedicatedDirectory() || partialFilename.empty()) return false;
         const std::filesystem::path filename { partialFilename };
         if (filename.filename() != filename) return false;
 

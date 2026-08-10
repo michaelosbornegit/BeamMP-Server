@@ -283,6 +283,27 @@ TEST_CASE("observer server runtime starts and stops capture through the test-onl
     std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("observer server runtime refuses enablement when producer atomics are not lock-free") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-server-lock-free-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const beammp::observer::TraceCaptureConfiguration configuration {
+        .Enabled = true,
+        .Directory = directory,
+        .MaximumSeconds = 10,
+        .MaximumFileMiB = 16,
+        .MaximumTotalMiB = 16,
+        .MaximumAgeHours = 1,
+    };
+
+    TServer server({});
+    server.ForceObserverTraceNonLockFreeForTest();
+
+    CHECK_FALSE(server.StartObserverTraceForTest(configuration, "beammp-accepted-pose-lock-free.ndjson.part", 1'000'000));
+    CHECK_FALSE(std::filesystem::exists(directory / "beammp-accepted-pose-lock-free.ndjson.part"));
+    CHECK_FALSE(std::filesystem::exists(directory / "beammp-accepted-pose-lock-free.ndjson"));
+    std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("observer server runtime starts a fresh trace epoch after stop") {
     const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-server-restart-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);

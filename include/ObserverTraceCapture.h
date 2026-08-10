@@ -115,6 +115,9 @@ public:
     // single release-store; it never waits for producer activity.
     void Disable() noexcept { mEnabled.store(false, std::memory_order_release); }
     void SetEnabledForTest(bool enabled) noexcept { mEnabled.store(enabled, std::memory_order_release); }
+    // Test-only hardware-failure seam: startup must fail closed rather than
+    // silently replacing the fixed queue with a blocking alternative.
+    void ForceNonLockFreeForTest() noexcept { mForceNonLockFreeForTest = true; }
     [[nodiscard]] bool TryPopForTest(RawStoredPoseV1& output) noexcept {
         if (!mQueue.TryPop(output)) return false;
         mPending.fetch_sub(1, std::memory_order_relaxed);
@@ -140,7 +143,7 @@ public:
     [[nodiscard]] bool ProducerAtomicsAreLockFreeForTest() const noexcept {
         return mEnabled.is_lock_free() && mActiveProducers.is_lock_free() && mSequence.is_lock_free() && mInvalidId.is_lock_free() && mInvalidPayload.is_lock_free() && mOversize.is_lock_free() && mAccepted.is_lock_free() && mPending.is_lock_free() && mEvictedOldest.is_lock_free() && mContentionDrop.is_lock_free() && mDequeued.is_lock_free() && mProducerQueueOperations.is_lock_free();
     }
-    [[nodiscard]] bool IsLockFree() const noexcept { return mQueue.IsLockFree() && ProducerAtomicsAreLockFreeForTest(); }
+    [[nodiscard]] bool IsLockFree() const noexcept { return !mForceNonLockFreeForTest && mQueue.IsLockFree() && ProducerAtomicsAreLockFreeForTest(); }
     [[nodiscard]] std::uint64_t InvalidIds() const noexcept { return mInvalidId.load(std::memory_order_relaxed); }
     [[nodiscard]] std::uint64_t InvalidPayloads() const noexcept { return mInvalidPayload.load(std::memory_order_relaxed); }
     [[nodiscard]] std::uint64_t Oversize() const noexcept { return mOversize.load(std::memory_order_relaxed); }
@@ -170,6 +173,7 @@ private:
     // producer starts and is otherwise null, so production capture has no hook.
     std::atomic<bool>* mProducerAdmissionObservedForTest {};
     std::atomic<bool>* mReleaseProducerAdmissionForTest {};
+    bool mForceNonLockFreeForTest {};
 };
 
 } // namespace beammp::observer
