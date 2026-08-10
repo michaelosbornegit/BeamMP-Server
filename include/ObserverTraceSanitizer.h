@@ -58,7 +58,7 @@ private:
             if (!std::isfinite(number)) return std::nullopt;
             output.push_back(number);
         }
-        return output;
+        return std::optional<nlohmann::json> { std::move(output) };
     }
 
     template <typename T>
