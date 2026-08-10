@@ -67,7 +67,7 @@ class TraceEpochFile final {
 public:
     TraceEpochFile(const std::filesystem::path& partialPath, const std::uint64_t traceStartMonoNs, const std::size_t maxPlayers, const std::size_t maxVehicles)
         : mPartialPath(partialPath), mFinalPath(FinalPath(partialPath)), mWriter(traceStartMonoNs, maxPlayers, maxVehicles) {
-        if (mPartialPath.extension() != ".part") return;
+        if (mPartialPath.extension() != ".part" || !HasSafeParentDirectory(mPartialPath)) return;
         std::error_code statusError;
         const auto partialStatus = std::filesystem::symlink_status(mPartialPath, statusError);
         if (std::filesystem::is_symlink(partialStatus) || (statusError && statusError != std::errc::no_such_file_or_directory)) return;
@@ -123,6 +123,20 @@ public:
     }
 
 private:
+    [[nodiscard]] static bool HasSafeParentDirectory(const std::filesystem::path& partialPath) {
+        const auto parent = partialPath.parent_path();
+        if (parent.empty()) return false;
+
+        std::error_code error;
+        const auto absoluteParent = std::filesystem::absolute(parent, error).lexically_normal();
+        if (error) return false;
+        const auto resolvedParent = std::filesystem::weakly_canonical(parent, error);
+        if (error || resolvedParent != absoluteParent) return false;
+
+        const auto parentStatus = std::filesystem::symlink_status(parent, error);
+        return !error && std::filesystem::is_directory(parentStatus) && !std::filesystem::is_symlink(parentStatus);
+    }
+
     [[nodiscard]] static std::filesystem::path FinalPath(const std::filesystem::path& partialPath) {
         auto result = partialPath;
         result.replace_extension();

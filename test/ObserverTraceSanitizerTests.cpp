@@ -180,3 +180,21 @@ TEST_CASE("observer trace epoch refuses a partial-path symlink without modifying
     CHECK(std::filesystem::is_symlink(partial));
     std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("observer trace epoch refuses a partial path beneath a symlinked directory") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-parent-symlink-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto actualDirectory = directory / "dedicated";
+    const auto linkedDirectory = directory / "linked";
+    std::filesystem::create_directories(actualDirectory);
+    std::filesystem::create_directory_symlink(actualDirectory.filename(), linkedDirectory);
+    const auto partial = linkedDirectory / "beammp-accepted-pose-test.ndjson.part";
+    const auto target = actualDirectory / "beammp-accepted-pose-test.ndjson.part";
+
+    {
+        beammp::observer::TraceEpochFile epoch(partial, 1'000'000, 2, 3);
+        CHECK_FALSE(epoch.IsOpen());
+    }
+
+    CHECK_FALSE(std::filesystem::exists(target));
+    std::filesystem::remove_all(directory);
+}
