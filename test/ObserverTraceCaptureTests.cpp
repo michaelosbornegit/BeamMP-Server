@@ -356,6 +356,14 @@ TEST_CASE("observer server runtime starts a fresh trace epoch after stop") {
     std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("observer runtime status command exposes only capture state and aggregate lifecycle state") {
+    TServer server({});
+
+    CHECK_EQ(server.RunObserverTraceCommandForTest("status"), "observertrace disabled idle");
+    CHECK_EQ(server.RunObserverTraceCommandForTest("off"), "observertrace disabled");
+    CHECK_EQ(server.RunObserverTraceCommandForTest("invalid"), "observertrace invalid command");
+}
+
 TEST_CASE("observer runtime off command disables producers and finalizes asynchronously") {
     const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-server-off-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);

@@ -87,9 +87,15 @@ public:
     // boundary. `off` is deliberately just the producer kill switch: worker
     // draining and file finalization remain asynchronous.
     [[nodiscard]] std::string RunObserverTraceCommandForTest(const std::string_view command) noexcept {
-        if (command != "off") return "observertrace invalid command";
-        mObserverTraceCapture->Disable();
-        return "observertrace disabled";
+        if (command == "status") {
+            return std::string("observertrace ") + (mObserverTraceCapture->IsEnabled() ? "enabled " : "disabled ")
+                + (mObserverTraceRuntime ? "running" : "idle");
+        }
+        if (command == "off") {
+            mObserverTraceCapture->Disable();
+            return "observertrace disabled";
+        }
+        return "observertrace invalid command";
     }
     [[nodiscard]] bool ObserverTraceCaptureEnabledForTest() const noexcept { return mObserverTraceCapture->IsEnabled(); }
 #endif
