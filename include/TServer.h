@@ -111,6 +111,9 @@ public:
                 + (mObserverTraceRuntime ? "running" : "idle")
                 + " accepted=" + std::to_string(metrics.QueuedSuccesses)
                 + " pending=" + std::to_string(metrics.Pending)
+                + " invalid_id=" + std::to_string(mObserverTraceCapture->InvalidIds())
+                + " invalid_payload=" + std::to_string(mObserverTraceCapture->InvalidPayloads())
+                + " oversize=" + std::to_string(mObserverTraceCapture->Oversize())
                 + " evicted=" + std::to_string(metrics.EvictedOldest)
                 + " contention_drop=" + std::to_string(metrics.ContentionDrops)
                 + (mObserverTraceRuntime && mObserverTraceRuntime->WriterFaulted() ? " writer=faulted" : "");

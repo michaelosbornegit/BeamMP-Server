@@ -363,7 +363,7 @@ TEST_CASE("observer server runtime starts a fresh trace epoch after stop") {
 TEST_CASE("observer runtime status command exposes only capture state and aggregate lifecycle state") {
     TServer server({});
 
-    CHECK_EQ(server.RunObserverTraceCommandForTest("status"), "observertrace disabled idle accepted=0 pending=0 evicted=0 contention_drop=0");
+    CHECK_EQ(server.RunObserverTraceCommandForTest("status"), "observertrace disabled idle accepted=0 pending=0 invalid_id=0 invalid_payload=0 oversize=0 evicted=0 contention_drop=0");
     CHECK_EQ(server.RunObserverTraceCommandForTest("off"), "observertrace disabled");
     CHECK_EQ(server.RunObserverTraceCommandForTest("on"), "observertrace unavailable");
     CHECK_FALSE(server.ObserverTraceCaptureEnabledForTest());
@@ -380,6 +380,22 @@ TEST_CASE("observer runtime status reports aggregate counters without payload da
     CHECK(status.find("pending=1") != std::string::npos);
     CHECK(status.find("private") == std::string::npos);
     CHECK(status.find("pos") == std::string::npos);
+}
+
+TEST_CASE("observer runtime status reports all privacy-safe rejection counters") {
+    TServer server({});
+    server.SetObserverTraceEnabledForTest(true);
+
+    CHECK_FALSE(server.HandleObserverTracePoseForTest(-1, 12, "{}", 10));
+    CHECK_FALSE(server.HandleObserverTracePoseForTest(7, 12, "", 11));
+    CHECK_FALSE(server.HandleObserverTracePoseForTest(7, 12,
+        std::string(beammp::observer::ObserverTraceCapture::kRawPoseCapacity + 1, 'x'), 12));
+
+    const auto status = server.RunObserverTraceCommandForTest("status");
+    CHECK(status.find("invalid_id=1") != std::string::npos);
+    CHECK(status.find("invalid_payload=1") != std::string::npos);
+    CHECK(status.find("oversize=1") != std::string::npos);
+    CHECK(status.find("{}") == std::string::npos);
 }
 
 TEST_CASE("observer runtime off command disables producers and finalizes asynchronously") {
@@ -443,7 +459,7 @@ TEST_CASE("observer console command accepts only one approved control token") {
     TServer server({});
 
     CHECK_EQ(TConsole::DispatchObserverTraceCommandForTest(server, { "status" }),
-        "observertrace disabled idle accepted=0 pending=0 evicted=0 contention_drop=0");
+        "observertrace disabled idle accepted=0 pending=0 invalid_id=0 invalid_payload=0 oversize=0 evicted=0 contention_drop=0");
     CHECK_EQ(TConsole::DispatchObserverTraceCommandForTest(server, { "off", "extra" }),
         "observertrace invalid command");
 }
