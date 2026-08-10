@@ -1,5 +1,7 @@
 #include "ObserverTraceCapture.h"
 #include "ObserverTraceMpscQueue.h"
+#include "Client.h"
+#include "TServer.h"
 
 #include <array>
 #include <atomic>
@@ -221,4 +223,24 @@ TEST_CASE("observer trace capture kill switch rejects a producer release after o
     CHECK_FALSE(secondAccepted.load(std::memory_order_acquire));
     CHECK_EQ(capture.Accepted(), 1);
     CHECK_EQ(capture.PendingForTest(), 1);
+}
+
+TEST_CASE("observer post-store boundary captures the authenticated client pose only after a successful store") {
+    TServer server({});
+    TClient client(server, ip::tcp::socket(server.IoCtx()));
+    client.SetID(77);
+    server.SetObserverTraceEnabledForTest(true);
+
+    constexpr std::string_view pose = R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})";
+    server.HandlePositionForTest(client, std::string("Zp:999-12:") + std::string(pose));
+
+    CHECK_EQ(client.GetCarPositionRaw(12), pose);
+    beammp::observer::RawStoredPoseV1 record {};
+    REQUIRE(server.TryPopObserverTraceForTest(record));
+    CHECK_EQ(record.PlayerId, 77);
+    CHECK_EQ(record.VehicleId, 12);
+    CHECK_EQ(std::string_view(record.RawPose.data(), record.PayloadSize), pose);
+
+    server.HandlePositionForTest(client, "Zp:999-13:not-a-pose");
+    CHECK_FALSE(server.TryPopObserverTraceForTest(record));
 }

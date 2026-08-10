@@ -26,6 +26,7 @@
 #include <TLuaPlugin.h>
 #include <algorithm>
 #include <any>
+#include <chrono>
 #include <optional>
 #include <sstream>
 #include <utility>
@@ -120,7 +121,11 @@ TEST_CASE("GetPidVid") {
         CHECK(!MaybePidVid);
     }
 }
-TServer::TServer(const std::vector<std::string_view>& Arguments) {
+TServer::TServer(const std::vector<std::string_view>& Arguments)
+#ifdef BEAMMP_OBSERVER_TRACE_TEST_ONLY
+    : mObserverTraceCapture(std::make_unique<beammp::observer::ObserverTraceCapture>())
+#endif
+{
     beammp_info("BeamMP Server v" + Application::ServerVersionString());
     Application::SetSubsystemStatus("Server", Application::Status::Starting);
     Application::SetSubsystemStatus("Server", Application::Status::Good);
@@ -644,5 +649,9 @@ TEST_CASE("ParsePositionPacket") {
 void TServer::HandlePosition(TClient& c, const std::string& Packet) {
     if (auto Parsed = ParsePositionPacket(Packet); Parsed.has_value()) {
         c.SetCarPosition(Parsed.value().VID, Parsed.value().Data);
+#ifdef BEAMMP_OBSERVER_TRACE_TEST_ONLY
+        const auto acceptedMonoNs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+        static_cast<void>(mObserverTraceCapture->TryCaptureStoredPose(c.GetID(), Parsed.value().VID, Parsed.value().Data, acceptedMonoNs));
+#endif
     }
 }

@@ -224,6 +224,9 @@ target_compile_features(${PROJECT_NAME} PRIVATE ${PRJ_COMPILE_FEATURES})
 target_compile_definitions(${PROJECT_NAME} PRIVATE ${PRJ_DEFINITIONS} ${PRJ_WARNINGS}
     DOCTEST_CONFIG_DISABLE # disables all test code in the final executable
 )
+if(BEAMMP_OBSERVER_TRACE_TEST_ONLY)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE BEAMMP_OBSERVER_TRACE_TEST_ONLY=1)
+endif()
 
 if(MSVC)
     target_compile_options(${PROJECT_NAME} PUBLIC "/bigobj")

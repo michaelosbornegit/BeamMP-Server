@@ -29,6 +29,10 @@
 
 #include "BoostAliases.h"
 
+#ifdef BEAMMP_OBSERVER_TRACE_TEST_ONLY
+#include "ObserverTraceCapture.h"
+#endif
+
 class TClient;
 class TNetwork;
 class TPPSMonitor;
@@ -53,8 +57,21 @@ public:
 
     io_context& IoCtx() { return mIoCtxPoller.IoCtx(); }
 
+#ifdef BEAMMP_OBSERVER_TRACE_TEST_ONLY
+    // Narrow test seam for proving the production post-store boundary without
+    // exposing it in a normal build.
+    void SetObserverTraceEnabledForTest(const bool enabled) noexcept { mObserverTraceCapture->SetEnabledForTest(enabled); }
+    [[nodiscard]] bool TryPopObserverTraceForTest(beammp::observer::RawStoredPoseV1& output) noexcept { return mObserverTraceCapture->TryPopForTest(output); }
+    void HandlePositionForTest(TClient& client, const std::string& packet) { HandlePosition(client, packet); }
+#endif
+
 private:
     TIoPollThread mIoCtxPoller;
+#ifdef BEAMMP_OBSERVER_TRACE_TEST_ONLY
+    // Heap-owned at startup: never put the 4 MiB fixed queue on main's stack
+    // and never allocate from a packet producer.
+    std::unique_ptr<beammp::observer::ObserverTraceCapture> mObserverTraceCapture;
+#endif
     TClientSet mClients;
     mutable RWMutex mClientsMutex;
     static void ParseVehicle(TClient& c, const std::string& Pckt, TNetwork& Network);
