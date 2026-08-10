@@ -94,6 +94,9 @@ public:
         return false;
     }
 
+    // The writer or shutdown context can stop new producer publication with a
+    // single release-store; it never waits for producer activity.
+    void Disable() noexcept { mEnabled.store(false, std::memory_order_release); }
     void SetEnabledForTest(bool enabled) noexcept { mEnabled.store(enabled, std::memory_order_release); }
     [[nodiscard]] bool TryPopForTest(RawStoredPoseV1& output) noexcept {
         if (!mQueue.TryPop(output)) return false;

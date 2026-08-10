@@ -441,6 +441,14 @@ public:
         return true;
     }
 
+    // A worker fault preserves the unfinished partial rather than producing a
+    // complete-looking trace. No producer waits on this worker-only action.
+    void Abort() noexcept {
+        if (!mEpoch) return;
+        mEpoch->Abort();
+        mEpoch.reset();
+    }
+
     [[nodiscard]] bool IsOpen() const noexcept { return static_cast<bool>(mEpoch); }
 
 private:
@@ -449,6 +457,29 @@ private:
     std::size_t mMaxVehicles {};
     std::uintmax_t mMaximumBytes {};
     std::unique_ptr<TraceEpochFile> mEpoch;
+};
+
+// Worker-side fault seam. A write fault first disables producer publication,
+// then closes the active epoch as a partial and drains only already-queued raw
+// records. It never finalizes a faulted epoch or calls back into producers.
+class TraceCaptureWorker final {
+public:
+    TraceCaptureWorker(ObserverTraceCapture& capture, TraceEpochLifecycle& lifecycle) noexcept
+        : mCapture(capture), mLifecycle(lifecycle) { }
+
+    void AbortForWriterFault() noexcept {
+        mCapture.Disable();
+        mLifecycle.Abort();
+        RawStoredPoseV1 discarded {};
+        while (mCapture.TryPopForTest(discarded)) ++mDiscardedAfterFault;
+    }
+
+    [[nodiscard]] std::uint64_t DiscardedAfterFault() const noexcept { return mDiscardedAfterFault; }
+
+private:
+    ObserverTraceCapture& mCapture;
+    TraceEpochLifecycle& mLifecycle;
+    std::uint64_t mDiscardedAfterFault {};
 };
 
 } // namespace beammp::observer
