@@ -9,6 +9,7 @@
 // Test-build-only worker-side record serializer. Never call from packet producers.
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -59,6 +60,38 @@ public:
 
 private:
     TraceSanitizer mSanitizer;
+};
+
+// Retention is worker-side only. It touches a direct, existing non-symlink
+// directory and deletes only aged finalized observer trace regular files.
+class TraceRetention final {
+public:
+    [[nodiscard]] static std::size_t DeleteFinalizedOlderThan(const std::filesystem::path& directory, const std::filesystem::file_time_type cutoff) {
+        std::error_code error;
+        const auto absoluteDirectory = std::filesystem::absolute(directory, error).lexically_normal();
+        if (error) return 0;
+        const auto resolvedDirectory = std::filesystem::weakly_canonical(directory, error);
+        if (error || resolvedDirectory != absoluteDirectory) return 0;
+        const auto directoryStatus = std::filesystem::symlink_status(directory, error);
+        if (error || !std::filesystem::is_directory(directoryStatus) || std::filesystem::is_symlink(directoryStatus)) return 0;
+
+        std::size_t deleted {};
+        std::filesystem::directory_iterator iterator(directory, error);
+        const std::filesystem::directory_iterator end;
+        while (!error && iterator != end) {
+            const auto path = iterator->path();
+            const auto filename = path.filename().string();
+            const auto status = std::filesystem::symlink_status(path, error);
+            if (!error && std::filesystem::is_regular_file(status) && !std::filesystem::is_symlink(status)
+                && filename.starts_with("beammp-accepted-pose-") && path.extension() == ".ndjson") {
+                const auto modified = std::filesystem::last_write_time(path, error);
+                if (!error && modified < cutoff && std::filesystem::remove(path, error)) ++deleted;
+            }
+            error.clear();
+            iterator.increment(error);
+        }
+        return deleted;
+    }
 };
 
 // Worker-side epoch file only. A trace remains a .part file unless a complete

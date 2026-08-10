@@ -198,3 +198,31 @@ TEST_CASE("observer trace epoch refuses a partial path beneath a symlinked direc
     CHECK_FALSE(std::filesystem::exists(target));
     std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("observer retention deletes only aged finalized trace files and refuses symlinks") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-retention-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto expiredTrace = directory / "beammp-accepted-pose-old.ndjson";
+    const auto freshTrace = directory / "beammp-accepted-pose-fresh.ndjson";
+    const auto unrelated = directory / "unrelated-old.ndjson";
+    const auto protectedTarget = directory / "protected.txt";
+    const auto traceSymlink = directory / "beammp-accepted-pose-link.ndjson";
+    for (const auto& path : { expiredTrace, freshTrace, unrelated, protectedTarget }) std::ofstream(path) << "preserve";
+    std::filesystem::create_symlink(protectedTarget.filename(), traceSymlink);
+
+    const auto now = std::filesystem::file_time_type::clock::now();
+    std::filesystem::last_write_time(expiredTrace, now - std::chrono::hours(2));
+    std::filesystem::last_write_time(unrelated, now - std::chrono::hours(2));
+    std::filesystem::last_write_time(traceSymlink, now - std::chrono::hours(2));
+
+    CHECK_EQ(beammp::observer::TraceRetention::DeleteFinalizedOlderThan(directory, now - std::chrono::hours(1)), 1);
+    CHECK_FALSE(std::filesystem::exists(expiredTrace));
+    CHECK(std::filesystem::exists(freshTrace));
+    CHECK(std::filesystem::exists(unrelated));
+    CHECK(std::filesystem::is_symlink(traceSymlink));
+    std::ifstream target(protectedTarget);
+    std::string contents;
+    std::getline(target, contents);
+    CHECK_EQ(contents, "preserve");
+    std::filesystem::remove_all(directory);
+}
