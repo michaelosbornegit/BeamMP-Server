@@ -129,6 +129,16 @@ TServer::TServer(const std::vector<std::string_view>& Arguments)
     beammp_info("BeamMP Server v" + Application::ServerVersionString());
     Application::SetSubsystemStatus("Server", Application::Status::Starting);
     Application::SetSubsystemStatus("Server", Application::Status::Good);
+#ifdef BEAMMP_OBSERVER_TRACE_TEST_ONLY
+    if (const auto configuration = beammp::observer::LoadTraceCaptureConfigurationFromEnvironmentForTest()) {
+        const auto traceStartMonoNs = static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+        const auto partialFilename = "beammp-accepted-pose-startup-" + std::to_string(traceStartMonoNs) + ".ndjson.part";
+        auto runtime = std::make_unique<beammp::observer::TraceCaptureRuntime>(*mObserverTraceCapture, *configuration, 256, 4096);
+        if (runtime->StartForTest(partialFilename, traceStartMonoNs)) {
+            mObserverTraceRuntime = std::move(runtime);
+        }
+    }
+#endif
 }
 
 void TServer::RemoveClient(const std::weak_ptr<TClient>& WeakClientPtr) {

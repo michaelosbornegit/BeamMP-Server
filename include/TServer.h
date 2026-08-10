@@ -79,6 +79,7 @@ public:
         mObserverTraceFinalized = mObserverTraceRuntime->Finalized();
         mObserverTraceRuntime.reset();
     }
+    [[nodiscard]] bool ObserverTraceRunningForTest() const noexcept { return mObserverTraceRuntime != nullptr; }
     [[nodiscard]] bool ObserverTraceFinalizedForTest() const noexcept { return mObserverTraceFinalized; }
 #endif
 

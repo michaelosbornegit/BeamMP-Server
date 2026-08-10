@@ -283,6 +283,33 @@ TEST_CASE("observer server runtime starts and stops capture through the test-onl
     std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("observer server starts capture from a complete enabled environment before accepting a stored pose") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-server-startup-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    REQUIRE(::setenv("BEAMMP_OBSERVER_TRACE_ENABLED", "true", 1) == 0);
+    REQUIRE(::setenv("BEAMMP_OBSERVER_TRACE_DIR", directory.c_str(), 1) == 0);
+    REQUIRE(::setenv("BEAMMP_OBSERVER_TRACE_MAX_SECONDS", "10", 1) == 0);
+    REQUIRE(::setenv("BEAMMP_OBSERVER_TRACE_MAX_FILE_MIB", "16", 1) == 0);
+    REQUIRE(::setenv("BEAMMP_OBSERVER_TRACE_MAX_TOTAL_MIB", "16", 1) == 0);
+    REQUIRE(::setenv("BEAMMP_OBSERVER_TRACE_MAX_AGE_HOURS", "1", 1) == 0);
+
+    TServer server({});
+    CHECK(server.ObserverTraceRunningForTest());
+    TClient client(server, ip::tcp::socket(server.IoCtx()));
+    client.SetID(77);
+    server.HandlePositionForTest(client, R"(Zp:999-12:{"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]}))");
+    server.StopObserverTraceForTest();
+
+    CHECK(server.ObserverTraceFinalizedForTest());
+    CHECK(::unsetenv("BEAMMP_OBSERVER_TRACE_ENABLED") == 0);
+    CHECK(::unsetenv("BEAMMP_OBSERVER_TRACE_DIR") == 0);
+    CHECK(::unsetenv("BEAMMP_OBSERVER_TRACE_MAX_SECONDS") == 0);
+    CHECK(::unsetenv("BEAMMP_OBSERVER_TRACE_MAX_FILE_MIB") == 0);
+    CHECK(::unsetenv("BEAMMP_OBSERVER_TRACE_MAX_TOTAL_MIB") == 0);
+    CHECK(::unsetenv("BEAMMP_OBSERVER_TRACE_MAX_AGE_HOURS") == 0);
+    std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("observer server runtime refuses enablement when producer atomics are not lock-free") {
     const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-server-lock-free-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
