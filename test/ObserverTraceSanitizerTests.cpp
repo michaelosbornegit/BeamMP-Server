@@ -417,3 +417,34 @@ TEST_CASE("observer trace epoch exposes rotation at its own duration and byte bo
 
     std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("observer epoch lifecycle finalizes a rotated trace before resetting dense identities") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-lifecycle-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto firstPartial = directory / "beammp-accepted-pose-first.ndjson.part";
+    const auto secondPartial = directory / "beammp-accepted-pose-second.ndjson.part";
+    const auto firstFinal = directory / "beammp-accepted-pose-first.ndjson";
+    const auto secondFinal = directory / "beammp-accepted-pose-second.ndjson";
+    constexpr std::string_view raw = R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})";
+
+    beammp::observer::TraceEpochLifecycle lifecycle(
+        { .MaximumDurationNs = 1'000, .MaximumFileBytes = 0 }, 2, 3);
+    REQUIRE(lifecycle.Start(firstPartial, 10'000));
+    REQUIRE(lifecycle.Append(raw, 42, 9, 10'500));
+    REQUIRE(lifecycle.RotateIfNeeded(11'000, { .Accepted = 1, .Written = 1, .DurationUs = 1 }, secondPartial));
+
+    CHECK(std::filesystem::exists(firstFinal));
+    CHECK(std::filesystem::exists(secondPartial));
+    REQUIRE(lifecycle.Append(raw, 73, 21, 11'500));
+    REQUIRE(lifecycle.Finalize({ .Accepted = 1, .Written = 1, .DurationUs = 1 }));
+    REQUIRE(std::filesystem::exists(secondFinal));
+
+    std::ifstream trace(secondFinal);
+    std::string line;
+    REQUIRE(std::getline(trace, line)); // header
+    REQUIRE(std::getline(trace, line)); // first record of a fresh epoch
+    const auto record = nlohmann::json::parse(line);
+    CHECK_EQ(record["player"], 0);
+    CHECK_EQ(record["vehicle"], 0);
+    std::filesystem::remove_all(directory);
+}

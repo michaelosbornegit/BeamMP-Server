@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -315,6 +316,52 @@ private:
     std::uintmax_t mFooterReserveBytes {};
     bool mOpen { false };
     bool mFinalized { false };
+};
+
+// Worker-owned lifecycle seam. Rotation always finalizes the current immutable
+// epoch before opening the next one, which gives each epoch a fresh sanitizer
+// and therefore fresh dense identity maps. Packet producers never use it.
+class TraceEpochLifecycle final {
+public:
+    TraceEpochLifecycle(const TraceEpochRotationPolicy rotationPolicy, const std::size_t maxPlayers, const std::size_t maxVehicles,
+        const std::uintmax_t maximumBytes = std::numeric_limits<std::uintmax_t>::max())
+        : mRotationPolicy(rotationPolicy), mMaxPlayers(maxPlayers), mMaxVehicles(maxVehicles), mMaximumBytes(maximumBytes) { }
+
+    [[nodiscard]] bool Start(const std::filesystem::path& partialPath, const std::uint64_t traceStartMonoNs) {
+        if (mEpoch) return false;
+        auto epoch = std::make_unique<TraceEpochFile>(partialPath, traceStartMonoNs, mMaxPlayers, mMaxVehicles, mMaximumBytes);
+        if (!epoch->IsOpen()) return false;
+        mEpoch = std::move(epoch);
+        return true;
+    }
+
+    [[nodiscard]] bool Append(const std::string_view rawPose, const std::int32_t playerId, const std::int32_t vehicleId,
+        const std::uint64_t acceptedMonoNs) {
+        return mEpoch && mEpoch->Append(rawPose, playerId, vehicleId, acceptedMonoNs);
+    }
+
+    [[nodiscard]] bool RotateIfNeeded(const std::uint64_t currentMonoNs, const TraceRecordWriter::FooterMetrics& metrics,
+        const std::filesystem::path& nextPartialPath) {
+        if (!mEpoch || !mEpoch->ShouldRotate(mRotationPolicy, currentMonoNs)) return false;
+        if (!mEpoch->Finalize(metrics)) return false;
+        mEpoch.reset();
+        return Start(nextPartialPath, currentMonoNs);
+    }
+
+    [[nodiscard]] bool Finalize(const TraceRecordWriter::FooterMetrics& metrics) {
+        if (!mEpoch || !mEpoch->Finalize(metrics)) return false;
+        mEpoch.reset();
+        return true;
+    }
+
+    [[nodiscard]] bool IsOpen() const noexcept { return static_cast<bool>(mEpoch); }
+
+private:
+    TraceEpochRotationPolicy mRotationPolicy;
+    std::size_t mMaxPlayers {};
+    std::size_t mMaxVehicles {};
+    std::uintmax_t mMaximumBytes {};
+    std::unique_ptr<TraceEpochFile> mEpoch;
 };
 
 } // namespace beammp::observer
