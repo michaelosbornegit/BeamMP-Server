@@ -155,7 +155,7 @@ class TraceEpochFile final {
 public:
     TraceEpochFile(const std::filesystem::path& partialPath, const std::uint64_t traceStartMonoNs, const std::size_t maxPlayers, const std::size_t maxVehicles)
         : mPartialPath(partialPath), mFinalPath(FinalPath(partialPath)), mWriter(traceStartMonoNs, maxPlayers, maxVehicles) {
-        if (mPartialPath.extension() != ".part" || !HasSafeParentDirectory(mPartialPath)) return;
+        if (!HasObserverPartialName(mPartialPath) || !HasSafeParentDirectory(mPartialPath)) return;
         std::error_code statusError;
         const auto finalStatus = std::filesystem::symlink_status(mFinalPath, statusError);
         // A final trace is immutable evidence: never open a matching partial
@@ -231,6 +231,13 @@ public:
     }
 
 private:
+    [[nodiscard]] static bool HasObserverPartialName(const std::filesystem::path& partialPath) {
+        const auto filename = partialPath.filename().string();
+        constexpr std::string_view prefix { "beammp-accepted-pose-" };
+        constexpr std::string_view suffix { ".ndjson.part" };
+        return filename.starts_with(prefix) && filename.ends_with(suffix) && filename.size() > prefix.size() + suffix.size();
+    }
+
     [[nodiscard]] static bool HasSafeParentDirectory(const std::filesystem::path& partialPath) {
         const auto parent = partialPath.parent_path();
         if (parent.empty()) return false;

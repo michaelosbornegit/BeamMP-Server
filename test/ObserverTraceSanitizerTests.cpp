@@ -180,6 +180,19 @@ TEST_CASE("observer trace epoch refuses non-partial filenames without creating a
     std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("observer trace epoch refuses a non-observer partial filename without creating a file") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-invalid-prefix-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto unsafe = directory / "unrelated.ndjson.part";
+
+    {
+        beammp::observer::TraceEpochFile epoch(unsafe, 1'000'000, 2, 3);
+        CHECK_FALSE(epoch.IsOpen());
+    }
+    CHECK_FALSE(std::filesystem::exists(unsafe));
+    std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("observer trace epoch refuses an existing partial trace without destroying recovery evidence") {
     const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-existing-partial-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
