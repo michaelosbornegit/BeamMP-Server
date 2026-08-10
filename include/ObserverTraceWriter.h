@@ -610,6 +610,10 @@ public:
         if (mThread.joinable()) mThread.join();
     }
 
+    // Test-only writer-fault injection is observed by the worker thread. The
+    // caller never touches worker-owned lifecycle or serializer state.
+    void RequestWriterFaultForTest() noexcept { mWriterFaultRequested.store(true, std::memory_order_release); }
+
     [[nodiscard]] std::uint64_t Written() const noexcept { return mWorker.Written(); }
     [[nodiscard]] bool Finalized() const noexcept { return mFinalized.load(std::memory_order_acquire); }
 
@@ -618,6 +622,7 @@ private:
 
     void Run() noexcept {
         for (;;) {
+            if (mWriterFaultRequested.load(std::memory_order_acquire)) mWorker.AbortForWriterFault();
             const auto drained = mWorker.DrainAtMost(kDrainBatchSize);
             if ((mStopRequested.load(std::memory_order_acquire) || !mCapture.IsEnabled()) && mCapture.PendingForTest() == 0
                 && mCapture.ActiveProducersForTest() == 0) break;
@@ -638,6 +643,7 @@ private:
     TraceEpochLifecycle& mLifecycle;
     TraceCaptureWorker mWorker;
     std::atomic<bool> mStopRequested { false };
+    std::atomic<bool> mWriterFaultRequested { false };
     std::atomic<bool> mFinalized { false };
     std::thread mThread;
 };
@@ -689,6 +695,10 @@ public:
 
     [[nodiscard]] bool Finalized() const noexcept {
         return mFinalized || (mWorker && mWorker->Finalized());
+    }
+
+    void RequestWriterFaultForTest() noexcept {
+        if (mWorker) mWorker->RequestWriterFaultForTest();
     }
 
 private:

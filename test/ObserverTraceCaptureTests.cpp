@@ -447,3 +447,28 @@ TEST_CASE("observer console command accepts only one approved control token") {
     CHECK_EQ(TConsole::DispatchObserverTraceCommandForTest(server, { "off", "extra" }),
         "observertrace invalid command");
 }
+
+TEST_CASE("observer runtime refuses re-enable after a writer fault") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-server-fault-latch-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const beammp::observer::TraceCaptureConfiguration configuration {
+        .Enabled = true,
+        .Directory = directory,
+        .MaximumSeconds = 10,
+        .MaximumFileMiB = 16,
+        .MaximumTotalMiB = 16,
+        .MaximumAgeHours = 1,
+    };
+
+    TServer server({});
+    REQUIRE(server.StartObserverTraceForTest(configuration, "beammp-accepted-pose-fault-latch.ndjson.part", 1'000'000));
+    server.ForceObserverTraceWriterFaultForTest();
+    for (std::size_t attempt = 0; attempt < 100 && server.ObserverTraceCaptureEnabledForTest(); ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    CHECK_FALSE(server.ObserverTraceCaptureEnabledForTest());
+    CHECK_EQ(server.RunObserverTraceCommandForTest("on"), "observertrace unavailable");
+    server.StopObserverTraceForTest();
+    std::filesystem::remove_all(directory);
+}

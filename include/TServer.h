@@ -65,6 +65,9 @@ public:
     // exposing it in a normal build.
     void SetObserverTraceEnabledForTest(const bool enabled) noexcept { mObserverTraceCapture->SetEnabledForTest(enabled); }
     void ForceObserverTraceNonLockFreeForTest() noexcept { mObserverTraceCapture->ForceNonLockFreeForTest(); }
+    void ForceObserverTraceWriterFaultForTest() noexcept {
+        if (mObserverTraceRuntime) mObserverTraceRuntime->RequestWriterFaultForTest();
+    }
     [[nodiscard]] bool TryPopObserverTraceForTest(beammp::observer::RawStoredPoseV1& output) noexcept { return mObserverTraceCapture->TryPopForTest(output); }
     [[nodiscard]] bool HandleObserverTracePoseForTest(const std::int32_t playerId, const std::int32_t vehicleId, const std::string_view pose, const std::uint64_t acceptedMonoNs) noexcept {
         return mObserverTraceCapture->TryCaptureStoredPose(playerId, vehicleId, pose, acceptedMonoNs);
