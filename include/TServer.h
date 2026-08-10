@@ -22,9 +22,11 @@
 #include "RWMutex.h"
 #include "TIoPollThread.h"
 #include "TScopedTimer.h"
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <unordered_set>
 
 #include "BoostAliases.h"
@@ -70,8 +72,9 @@ public:
     void HandlePositionForTest(TClient& client, const std::string& packet) { HandlePosition(client, packet); }
     [[nodiscard]] bool StartObserverTraceForTest(beammp::observer::TraceCaptureConfiguration configuration, std::string_view partialFilename, std::uint64_t traceStartMonoNs) {
         if (mObserverTraceRuntime) return false;
-        auto runtime = std::make_unique<beammp::observer::TraceCaptureRuntime>(*mObserverTraceCapture, std::move(configuration), 256, 4096);
+        auto runtime = std::make_unique<beammp::observer::TraceCaptureRuntime>(*mObserverTraceCapture, configuration, 256, 4096);
         if (!runtime->StartForTest(partialFilename, traceStartMonoNs)) return false;
+        mObserverTraceConfiguration = std::move(configuration);
         mObserverTraceRuntime = std::move(runtime);
         mObserverTraceFinalized = false;
         return true;
@@ -103,9 +106,20 @@ public:
             mObserverTraceCapture->Disable();
             return "observertrace disabled";
         }
-        // Re-enable requires a retained, validated startup configuration and a
-        // fresh worker epoch. Until that lifecycle is implemented, fail closed.
-        if (command == "on") return "observertrace unavailable";
+        if (command == "on") {
+            if (mObserverTraceRuntime) {
+                if (!mObserverTraceRuntime->Finalized()) return "observertrace unavailable";
+                mObserverTraceRuntime->StopAndJoin();
+                mObserverTraceFinalized = mObserverTraceRuntime->Finalized();
+                mObserverTraceRuntime.reset();
+            }
+            if (!mObserverTraceConfiguration) return "observertrace unavailable";
+            const auto traceStartMonoNs = static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+            const auto partialFilename = "beammp-accepted-pose-on-" + std::to_string(traceStartMonoNs) + ".ndjson.part";
+            return StartObserverTraceForTest(*mObserverTraceConfiguration, partialFilename, traceStartMonoNs)
+                ? "observertrace enabled"
+                : "observertrace unavailable";
+        }
         return "observertrace invalid command";
     }
     [[nodiscard]] bool ObserverTraceCaptureEnabledForTest() const noexcept { return mObserverTraceCapture->IsEnabled(); }
@@ -118,6 +132,7 @@ private:
     // and never allocate from a packet producer.
     std::unique_ptr<beammp::observer::ObserverTraceCapture> mObserverTraceCapture;
     std::unique_ptr<beammp::observer::TraceCaptureRuntime> mObserverTraceRuntime;
+    std::optional<beammp::observer::TraceCaptureConfiguration> mObserverTraceConfiguration;
     bool mObserverTraceFinalized {};
 #endif
     TClientSet mClients;

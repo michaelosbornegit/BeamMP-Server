@@ -135,6 +135,7 @@ TServer::TServer(const std::vector<std::string_view>& Arguments)
         const auto partialFilename = "beammp-accepted-pose-startup-" + std::to_string(traceStartMonoNs) + ".ndjson.part";
         auto runtime = std::make_unique<beammp::observer::TraceCaptureRuntime>(*mObserverTraceCapture, *configuration, 256, 4096);
         if (runtime->StartForTest(partialFilename, traceStartMonoNs)) {
+            mObserverTraceConfiguration = *configuration;
             mObserverTraceRuntime = std::move(runtime);
         }
     }

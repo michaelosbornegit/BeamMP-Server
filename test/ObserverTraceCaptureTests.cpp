@@ -301,6 +301,9 @@ TEST_CASE("observer server starts capture from a complete enabled environment be
     server.StopObserverTraceForTest();
 
     CHECK(server.ObserverTraceFinalizedForTest());
+    CHECK_EQ(server.RunObserverTraceCommandForTest("on"), "observertrace enabled");
+    CHECK(server.ObserverTraceCaptureEnabledForTest());
+    server.StopObserverTraceForTest();
     CHECK(::unsetenv("BEAMMP_OBSERVER_TRACE_ENABLED") == 0);
     CHECK(::unsetenv("BEAMMP_OBSERVER_TRACE_DIR") == 0);
     CHECK(::unsetenv("BEAMMP_OBSERVER_TRACE_MAX_SECONDS") == 0);
@@ -403,6 +406,34 @@ TEST_CASE("observer runtime off command disables producers and finalizes asynchr
     }
     CHECK(server.ObserverTraceFinalizedForTest());
     CHECK(std::filesystem::exists(directory / "beammp-accepted-pose-off.ndjson"));
+    server.StopObserverTraceForTest();
+    std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("observer runtime on command starts a fresh validated epoch after asynchronous off finalization") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-server-on-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const beammp::observer::TraceCaptureConfiguration configuration {
+        .Enabled = true,
+        .Directory = directory,
+        .MaximumSeconds = 10,
+        .MaximumFileMiB = 16,
+        .MaximumTotalMiB = 16,
+        .MaximumAgeHours = 1,
+    };
+
+    TServer server({});
+    REQUIRE(server.StartObserverTraceForTest(configuration, "beammp-accepted-pose-on-first.ndjson.part", 1'000'000));
+    CHECK_EQ(server.RunObserverTraceCommandForTest("off"), "observertrace disabled");
+    for (std::size_t attempt = 0; attempt < 100 && !server.ObserverTraceFinalizedForTest(); ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    REQUIRE(server.ObserverTraceFinalizedForTest());
+
+    CHECK_EQ(server.RunObserverTraceCommandForTest("on"), "observertrace enabled");
+    CHECK(server.ObserverTraceCaptureEnabledForTest());
+    CHECK(server.ObserverTraceRunningForTest());
+
     server.StopObserverTraceForTest();
     std::filesystem::remove_all(directory);
 }
