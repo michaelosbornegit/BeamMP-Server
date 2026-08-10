@@ -355,3 +355,32 @@ TEST_CASE("observer server runtime starts a fresh trace epoch after stop") {
     CHECK(std::filesystem::exists(directory / "beammp-accepted-pose-second.ndjson"));
     std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("observer runtime off command disables producers and finalizes asynchronously") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-server-off-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const beammp::observer::TraceCaptureConfiguration configuration {
+        .Enabled = true,
+        .Directory = directory,
+        .MaximumSeconds = 10,
+        .MaximumFileMiB = 16,
+        .MaximumTotalMiB = 16,
+        .MaximumAgeHours = 1,
+    };
+
+    TServer server({});
+    REQUIRE(server.StartObserverTraceForTest(configuration, "beammp-accepted-pose-off.ndjson.part", 1'000'000));
+    TClient client(server, ip::tcp::socket(server.IoCtx()));
+    client.SetID(77);
+    server.HandlePositionForTest(client, R"(Zp:999-12:{"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]}))");
+    CHECK_EQ(server.RunObserverTraceCommandForTest("off"), "observertrace disabled");
+    CHECK_FALSE(server.ObserverTraceCaptureEnabledForTest());
+
+    for (std::size_t attempt = 0; attempt < 100 && !server.ObserverTraceFinalizedForTest(); ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    CHECK(server.ObserverTraceFinalizedForTest());
+    CHECK(std::filesystem::exists(directory / "beammp-accepted-pose-off.ndjson"));
+    server.StopObserverTraceForTest();
+    std::filesystem::remove_all(directory);
+}

@@ -687,7 +687,9 @@ public:
         mLifecycle.reset();
     }
 
-    [[nodiscard]] bool Finalized() const noexcept { return mFinalized; }
+    [[nodiscard]] bool Finalized() const noexcept {
+        return mFinalized || (mWorker && mWorker->Finalized());
+    }
 
 private:
     [[nodiscard]] bool HasDedicatedDirectory() const noexcept {

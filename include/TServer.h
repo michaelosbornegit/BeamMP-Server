@@ -80,7 +80,18 @@ public:
         mObserverTraceRuntime.reset();
     }
     [[nodiscard]] bool ObserverTraceRunningForTest() const noexcept { return mObserverTraceRuntime != nullptr; }
-    [[nodiscard]] bool ObserverTraceFinalizedForTest() const noexcept { return mObserverTraceFinalized; }
+    [[nodiscard]] bool ObserverTraceFinalizedForTest() const noexcept {
+        return mObserverTraceFinalized || (mObserverTraceRuntime && mObserverTraceRuntime->Finalized());
+    }
+    // The console command delegates to this narrow, test-build-only control
+    // boundary. `off` is deliberately just the producer kill switch: worker
+    // draining and file finalization remain asynchronous.
+    [[nodiscard]] std::string RunObserverTraceCommandForTest(const std::string_view command) noexcept {
+        if (command != "off") return "observertrace invalid command";
+        mObserverTraceCapture->Disable();
+        return "observertrace disabled";
+    }
+    [[nodiscard]] bool ObserverTraceCaptureEnabledForTest() const noexcept { return mObserverTraceCapture->IsEnabled(); }
 #endif
 
 private:
