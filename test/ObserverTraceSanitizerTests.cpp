@@ -500,3 +500,23 @@ TEST_CASE("observer epoch lifecycle keeps its active epoch when a rotation succe
     REQUIRE(lifecycle.Finalize({}));
     std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("observer epoch rotation removes an unused successor when active finalization fails") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-rotation-finalize-failure-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto firstPartial = directory / "beammp-accepted-pose-first.ndjson.part";
+    const auto firstFinal = directory / "beammp-accepted-pose-first.ndjson";
+    const auto nextPartial = directory / "beammp-accepted-pose-next.ndjson.part";
+
+    beammp::observer::TraceEpochLifecycle lifecycle(
+        { .MaximumDurationNs = 1'000, .MaximumFileBytes = 0 }, 2, 3);
+    REQUIRE(lifecycle.Start(firstPartial, 10'000));
+    std::ofstream(firstFinal) << "immutable-race-winner";
+
+    CHECK_FALSE(lifecycle.RotateIfNeeded(11'000, {}, nextPartial));
+    CHECK(lifecycle.IsOpen());
+    CHECK(std::filesystem::exists(firstPartial));
+    CHECK_FALSE(std::filesystem::exists(nextPartial));
+
+    std::filesystem::remove_all(directory);
+}

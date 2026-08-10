@@ -228,6 +228,17 @@ public:
 
     [[nodiscard]] bool IsOpen() const noexcept { return mOpen; }
 
+    // Check the immutable destination immediately before a lifecycle opens a
+    // successor. This avoids creating an unused .part when finalization is
+    // already known to be impossible because another actor won the final name.
+    [[nodiscard]] bool CanFinalize() const {
+        if (!mOpen || mFinalized) return false;
+        std::error_code error;
+        const auto finalStatus = std::filesystem::symlink_status(mFinalPath, error);
+        return (error == std::errc::no_such_file_or_directory)
+            || (!error && !std::filesystem::exists(finalStatus) && !std::filesystem::is_symlink(finalStatus));
+    }
+
     [[nodiscard]] std::uintmax_t BytesWritten() const noexcept { return mBytesWritten; }
 
     [[nodiscard]] bool ShouldRotate(const TraceEpochRotationPolicy& policy, const std::uint64_t currentMonoNs) const noexcept {
@@ -350,6 +361,11 @@ public:
     [[nodiscard]] bool RotateIfNeeded(const std::uint64_t currentMonoNs, const TraceRecordWriter::FooterMetrics& metrics,
         const std::filesystem::path& nextPartialPath) {
         if (!mEpoch || !mEpoch->ShouldRotate(mRotationPolicy, currentMonoNs)) return false;
+
+        // Avoid creating a header-only successor if the current immutable
+        // destination is already occupied. The finalization operation still
+        // performs its own no-replace link to cover races after this check.
+        if (!mEpoch->CanFinalize()) return false;
 
         // Opening the successor can fail because its name is already immutable
         // evidence or its directory is no longer safe. Check that failure before
