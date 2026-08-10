@@ -723,6 +723,13 @@ public:
         const std::filesystem::path filename { partialFilename };
         if (filename.filename() != filename) return false;
 
+        // Retention is worker/startup-side only. It runs before this epoch opens,
+        // so no packet producer can observe filesystem work or an over-age trace.
+        const auto cutoff = std::filesystem::file_time_type::clock::now() - std::chrono::hours(mConfiguration.MaximumAgeHours);
+        static_cast<void>(TraceRetention::DeleteFinalizedOlderThan(mConfiguration.Directory, cutoff));
+        const auto totalBytes = static_cast<std::uintmax_t>(mConfiguration.MaximumTotalMiB) * 1024U * 1024U;
+        static_cast<void>(TraceRetention::TrimFinalizedToTotalBytes(mConfiguration.Directory, totalBytes));
+
         const auto partialPath = mConfiguration.Directory / filename;
         const auto maximumBytes = static_cast<std::uintmax_t>(mConfiguration.MaximumFileMiB) * 1024U * 1024U;
         auto lifecycle = std::make_unique<TraceEpochLifecycle>(
@@ -745,6 +752,10 @@ public:
         mFinalized = mWorker->Finalized();
         mWorker.reset();
         mLifecycle.reset();
+        if (mFinalized) {
+            const auto totalBytes = static_cast<std::uintmax_t>(mConfiguration.MaximumTotalMiB) * 1024U * 1024U;
+            static_cast<void>(TraceRetention::TrimFinalizedToTotalBytes(mConfiguration.Directory, totalBytes));
+        }
     }
 
     [[nodiscard]] bool Finalized() const noexcept {

@@ -845,6 +845,101 @@ TEST_CASE("observer worker drains no more than its caller-owned batch budget") {
     std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("observer runtime applies age retention to matching finalized traces before opening an epoch") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-runtime-age-retention-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto expired = directory / "beammp-accepted-pose-expired.ndjson";
+    const auto unrelated = directory / "unrelated.ndjson";
+    std::ofstream(expired) << "expired observer evidence";
+    std::ofstream(unrelated) << "preserve unrelated evidence";
+    const auto now = std::filesystem::file_time_type::clock::now();
+    std::filesystem::last_write_time(expired, now - std::chrono::hours(2));
+    std::filesystem::last_write_time(unrelated, now - std::chrono::hours(2));
+
+    const beammp::observer::TraceCaptureConfiguration configuration {
+        .Enabled = true,
+        .Directory = directory,
+        .MaximumSeconds = 10,
+        .MaximumFileMiB = 16,
+        .MaximumTotalMiB = 16,
+        .MaximumAgeHours = 1,
+    };
+    beammp::observer::ObserverTraceCapture capture;
+    beammp::observer::TraceCaptureRuntime runtime(capture, configuration, 2, 3);
+
+    REQUIRE(runtime.StartForTest("beammp-accepted-pose-current.ndjson.part", 1'000'000));
+    CHECK_FALSE(std::filesystem::exists(expired));
+    CHECK(std::filesystem::exists(unrelated));
+
+    runtime.StopAndJoin();
+    std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("observer runtime applies total-size retention to matching finalized traces before opening an epoch") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-runtime-total-retention-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto oldest = directory / "beammp-accepted-pose-oldest.ndjson";
+    const auto newest = directory / "beammp-accepted-pose-newest.ndjson";
+    const auto unrelated = directory / "unrelated.ndjson";
+    for (const auto& trace : { oldest, newest }) {
+        std::ofstream output(trace, std::ios::binary);
+        output.seekp(9 * 1024 * 1024 - 1);
+        output.put('\n');
+    }
+    std::ofstream(unrelated) << "preserve unrelated evidence";
+    const auto now = std::filesystem::file_time_type::clock::now();
+    std::filesystem::last_write_time(oldest, now - std::chrono::minutes(2));
+    std::filesystem::last_write_time(newest, now - std::chrono::minutes(1));
+
+    const beammp::observer::TraceCaptureConfiguration configuration {
+        .Enabled = true,
+        .Directory = directory,
+        .MaximumSeconds = 10,
+        .MaximumFileMiB = 16,
+        .MaximumTotalMiB = 16,
+        .MaximumAgeHours = 24,
+    };
+    beammp::observer::ObserverTraceCapture capture;
+    beammp::observer::TraceCaptureRuntime runtime(capture, configuration, 2, 3);
+
+    REQUIRE(runtime.StartForTest("beammp-accepted-pose-current.ndjson.part", 1'000'000));
+    CHECK_FALSE(std::filesystem::exists(oldest));
+    CHECK(std::filesystem::exists(newest));
+    CHECK(std::filesystem::exists(unrelated));
+
+    runtime.StopAndJoin();
+    std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("observer runtime restores the total finalized-trace budget after finalization") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-runtime-final-retention-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto existing = directory / "beammp-accepted-pose-existing.ndjson";
+    {
+        std::ofstream output(existing, std::ios::binary);
+        output.seekp(16 * 1024 * 1024 - 1);
+        output.put('\n');
+    }
+    const beammp::observer::TraceCaptureConfiguration configuration {
+        .Enabled = true,
+        .Directory = directory,
+        .MaximumSeconds = 10,
+        .MaximumFileMiB = 16,
+        .MaximumTotalMiB = 16,
+        .MaximumAgeHours = 24,
+    };
+    beammp::observer::ObserverTraceCapture capture;
+    beammp::observer::TraceCaptureRuntime runtime(capture, configuration, 2, 3);
+
+    REQUIRE(runtime.StartForTest("beammp-accepted-pose-current.ndjson.part", 1'000'000));
+    runtime.StopAndJoin();
+    CHECK(runtime.Finalized());
+    CHECK_FALSE(std::filesystem::exists(existing));
+    CHECK(std::filesystem::exists(directory / "beammp-accepted-pose-current.ndjson"));
+
+    std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("observer runtime starts a worker only in the validated dedicated trace directory") {
     const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-runtime-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
