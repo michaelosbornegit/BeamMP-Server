@@ -226,6 +226,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE ${PRJ_DEFINITIONS} ${PRJ_WARN
 )
 if(BEAMMP_OBSERVER_TRACE_TEST_ONLY)
     target_compile_definitions(${PROJECT_NAME} PRIVATE BEAMMP_OBSERVER_TRACE_TEST_ONLY=1)
+    target_link_libraries(${PROJECT_NAME} nlohmann_json::nlohmann_json)
 endif()
 
 if(MSVC)

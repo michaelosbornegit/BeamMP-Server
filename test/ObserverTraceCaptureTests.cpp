@@ -257,3 +257,28 @@ TEST_CASE("observer post-store boundary captures the authenticated client pose o
     server.HandlePositionForTest(client, "Zp:999-13:not-a-pose");
     CHECK_FALSE(server.TryPopObserverTraceForTest(record));
 }
+
+TEST_CASE("observer server runtime starts and stops capture through the test-only control boundary") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-server-runtime-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const beammp::observer::TraceCaptureConfiguration configuration {
+        .Enabled = true,
+        .Directory = directory,
+        .MaximumSeconds = 10,
+        .MaximumFileMiB = 16,
+        .MaximumTotalMiB = 16,
+        .MaximumAgeHours = 1,
+    };
+    constexpr std::string_view pose = R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})";
+
+    TServer server({});
+    REQUIRE(server.StartObserverTraceForTest(configuration, "beammp-accepted-pose-server.ndjson.part", 1'000'000));
+    TClient client(server, ip::tcp::socket(server.IoCtx()));
+    client.SetID(77);
+    server.HandlePositionForTest(client, std::string("Zp:999-12:") + std::string(pose));
+    server.StopObserverTraceForTest();
+
+    CHECK(server.ObserverTraceFinalizedForTest());
+    CHECK(std::filesystem::exists(directory / "beammp-accepted-pose-server.ndjson"));
+    std::filesystem::remove_all(directory);
+}

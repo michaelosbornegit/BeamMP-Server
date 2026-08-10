@@ -31,6 +31,7 @@
 
 #ifdef BEAMMP_OBSERVER_TRACE_TEST_ONLY
 #include "ObserverTraceCapture.h"
+#include "ObserverTraceWriter.h"
 #endif
 
 class TClient;
@@ -63,6 +64,15 @@ public:
     void SetObserverTraceEnabledForTest(const bool enabled) noexcept { mObserverTraceCapture->SetEnabledForTest(enabled); }
     [[nodiscard]] bool TryPopObserverTraceForTest(beammp::observer::RawStoredPoseV1& output) noexcept { return mObserverTraceCapture->TryPopForTest(output); }
     void HandlePositionForTest(TClient& client, const std::string& packet) { HandlePosition(client, packet); }
+    [[nodiscard]] bool StartObserverTraceForTest(beammp::observer::TraceCaptureConfiguration configuration, std::string_view partialFilename, std::uint64_t traceStartMonoNs) {
+        if (mObserverTraceRuntime) return false;
+        auto runtime = std::make_unique<beammp::observer::TraceCaptureRuntime>(*mObserverTraceCapture, std::move(configuration), 256, 4096);
+        if (!runtime->StartForTest(partialFilename, traceStartMonoNs)) return false;
+        mObserverTraceRuntime = std::move(runtime);
+        return true;
+    }
+    void StopObserverTraceForTest() noexcept { if (mObserverTraceRuntime) mObserverTraceRuntime->StopAndJoin(); }
+    [[nodiscard]] bool ObserverTraceFinalizedForTest() const noexcept { return mObserverTraceRuntime && mObserverTraceRuntime->Finalized(); }
 #endif
 
 private:
@@ -71,6 +81,7 @@ private:
     // Heap-owned at startup: never put the 4 MiB fixed queue on main's stack
     // and never allocate from a packet producer.
     std::unique_ptr<beammp::observer::ObserverTraceCapture> mObserverTraceCapture;
+    std::unique_ptr<beammp::observer::TraceCaptureRuntime> mObserverTraceRuntime;
 #endif
     TClientSet mClients;
     mutable RWMutex mClientsMutex;
