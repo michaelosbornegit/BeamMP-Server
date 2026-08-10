@@ -123,6 +123,34 @@ TEST_CASE("observer trace epoch remains partial until the privacy-safe footer is
     std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("observer trace epoch refuses an append that would exceed its finalized byte budget") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-byte-budget-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto partial = directory / "beammp-accepted-pose-test.ndjson.part";
+    const auto finalized = directory / "beammp-accepted-pose-test.ndjson";
+    constexpr std::uintmax_t byteBudget = 600;
+
+    {
+        beammp::observer::TraceEpochFile epoch(partial, 1'000'000, 2, 3, byteBudget);
+        REQUIRE(epoch.IsOpen());
+        REQUIRE(epoch.Append(R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})", 42, 9, 1'020'000));
+        CHECK_FALSE(epoch.Append(R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})", 42, 9, 1'040'000));
+        CHECK(epoch.Finalize({ .Accepted = 2, .Written = 1, .DurationUs = 40'000 }));
+    }
+
+    REQUIRE(std::filesystem::exists(finalized));
+    CHECK_LE(std::filesystem::file_size(finalized), byteBudget);
+    std::ifstream trace(finalized);
+    std::string line;
+    REQUIRE(std::getline(trace, line));
+    REQUIRE(std::getline(trace, line));
+    CHECK_EQ(nlohmann::json::parse(line)["dt_us"], 20);
+    REQUIRE(std::getline(trace, line));
+    CHECK_EQ(nlohmann::json::parse(line)["footer"], "beammp.accepted-pose/v1");
+    CHECK_FALSE(std::getline(trace, line));
+    std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("observer trace epoch refuses to overwrite an existing finalized trace") {
     const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-no-overwrite-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);

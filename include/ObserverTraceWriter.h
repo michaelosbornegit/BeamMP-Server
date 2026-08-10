@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -153,8 +154,9 @@ public:
 // allowlisted footer has been flushed and the atomic rename succeeds.
 class TraceEpochFile final {
 public:
-    TraceEpochFile(const std::filesystem::path& partialPath, const std::uint64_t traceStartMonoNs, const std::size_t maxPlayers, const std::size_t maxVehicles)
-        : mPartialPath(partialPath), mFinalPath(FinalPath(partialPath)), mWriter(traceStartMonoNs, maxPlayers, maxVehicles) {
+    TraceEpochFile(const std::filesystem::path& partialPath, const std::uint64_t traceStartMonoNs, const std::size_t maxPlayers, const std::size_t maxVehicles,
+        const std::uintmax_t maximumBytes = std::numeric_limits<std::uintmax_t>::max())
+        : mPartialPath(partialPath), mFinalPath(FinalPath(partialPath)), mWriter(traceStartMonoNs, maxPlayers, maxVehicles), mMaximumBytes(maximumBytes) {
         if (!HasObserverPartialName(mPartialPath) || !HasSafeParentDirectory(mPartialPath)) return;
         std::error_code statusError;
         const auto finalStatus = std::filesystem::symlink_status(mFinalPath, statusError);
@@ -178,8 +180,18 @@ public:
             mStream.close();
             return;
         }
-        mStream << mWriter.Header() << '\n';
+        const auto header = mWriter.Header();
+        if (!BytesFit(header.size() + 1, 0)) {
+            mStream.close();
+            return;
+        }
+        mStream << header << '\n';
         mOpen = static_cast<bool>(mStream);
+        if (mOpen) {
+            mBytesWritten = header.size() + 1;
+            const auto maximum = std::numeric_limits<std::uint64_t>::max();
+            mFooterReserveBytes = mWriter.Footer({ maximum, maximum, maximum, maximum, maximum, maximum, maximum }).size() + 1;
+        }
         if (!mOpen) mStream.close();
     }
 
@@ -200,16 +212,21 @@ public:
         record.PayloadSize = static_cast<std::uint16_t>(rawPose.size());
         std::memcpy(record.RawPose.data(), rawPose.data(), rawPose.size());
         const auto line = mWriter.Serialize(record);
-        if (!line) return false;
+        if (!line || !BytesFit(line->size() + 1, mFooterReserveBytes)) return false;
         mStream << *line << '\n';
-        return static_cast<bool>(mStream);
+        if (!mStream) return false;
+        mBytesWritten += line->size() + 1;
+        return true;
     }
 
     [[nodiscard]] bool Finalize(const TraceRecordWriter::FooterMetrics& metrics) {
         if (!mOpen || mFinalized) return false;
-        mStream << mWriter.Footer(metrics) << '\n';
+        const auto footer = mWriter.Footer(metrics);
+        if (!BytesFit(footer.size() + 1, 0)) return false;
+        mStream << footer << '\n';
         mStream.flush();
         if (!mStream) return false;
+        mBytesWritten += footer.size() + 1;
         mStream.close();
         std::error_code error;
         // rename() can replace an existing destination on POSIX. Atomically
@@ -231,6 +248,12 @@ public:
     }
 
 private:
+    [[nodiscard]] bool BytesFit(const std::uintmax_t additionalBytes, const std::uintmax_t reservedBytes) const noexcept {
+        if (mBytesWritten > mMaximumBytes) return false;
+        const auto remaining = mMaximumBytes - mBytesWritten;
+        return reservedBytes <= remaining && additionalBytes <= remaining - reservedBytes;
+    }
+
     [[nodiscard]] static bool HasObserverPartialName(const std::filesystem::path& partialPath) {
         const auto filename = partialPath.filename().string();
         constexpr std::string_view prefix { "beammp-accepted-pose-" };
@@ -262,6 +285,9 @@ private:
     std::filesystem::path mFinalPath;
     TraceRecordWriter mWriter;
     std::ofstream mStream;
+    std::uintmax_t mMaximumBytes {};
+    std::uintmax_t mBytesWritten {};
+    std::uintmax_t mFooterReserveBytes {};
     bool mOpen { false };
     bool mFinalized { false };
 };
