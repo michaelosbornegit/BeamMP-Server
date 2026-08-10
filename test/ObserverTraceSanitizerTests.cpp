@@ -544,3 +544,31 @@ TEST_CASE("observer epoch rotation removes an unused successor when active final
 
     std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("observer writer fault leaves the current trace identifiable as an unfinished partial") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-abort-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto partial = directory / "beammp-accepted-pose-fault.ndjson.part";
+    const auto finalized = directory / "beammp-accepted-pose-fault.ndjson";
+
+    {
+        beammp::observer::TraceEpochFile epoch(partial, 1'000'000, 2, 3);
+        REQUIRE(epoch.IsOpen());
+        REQUIRE(epoch.Append(R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})", 42, 9, 1'020'000));
+
+        epoch.Abort();
+
+        CHECK_FALSE(epoch.IsOpen());
+        CHECK(std::filesystem::exists(partial));
+        CHECK_FALSE(std::filesystem::exists(finalized));
+        std::ifstream trace(partial);
+        std::string line;
+        REQUIRE(std::getline(trace, line));
+        CHECK_EQ(nlohmann::json::parse(line)["schema"], "beammp.accepted-pose/v1");
+        REQUIRE(std::getline(trace, line));
+        CHECK_EQ(nlohmann::json::parse(line)["player"], 0);
+        CHECK_FALSE(std::getline(trace, line));
+    }
+
+    std::filesystem::remove_all(directory);
+}

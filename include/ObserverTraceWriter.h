@@ -313,6 +313,13 @@ public:
         return true;
     }
 
+    // A writer fault must never produce a falsely complete trace. Close the
+    // stream and preserve its .part path as recovery evidence for later review.
+    void Abort() noexcept {
+        if (mStream.is_open()) mStream.close();
+        mOpen = false;
+    }
+
     [[nodiscard]] bool Finalize(const TraceRecordWriter::FooterMetrics& metrics) {
         if (!mOpen || mFinalized) return false;
         const auto footer = mWriter.Footer(metrics);
