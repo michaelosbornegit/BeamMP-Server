@@ -361,6 +361,8 @@ TEST_CASE("observer runtime status command exposes only capture state and aggreg
 
     CHECK_EQ(server.RunObserverTraceCommandForTest("status"), "observertrace disabled idle accepted=0 pending=0 evicted=0 contention_drop=0");
     CHECK_EQ(server.RunObserverTraceCommandForTest("off"), "observertrace disabled");
+    CHECK_EQ(server.RunObserverTraceCommandForTest("on"), "observertrace unavailable");
+    CHECK_FALSE(server.ObserverTraceCaptureEnabledForTest());
     CHECK_EQ(server.RunObserverTraceCommandForTest("invalid"), "observertrace invalid command");
 }
 

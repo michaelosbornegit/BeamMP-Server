@@ -103,6 +103,9 @@ public:
             mObserverTraceCapture->Disable();
             return "observertrace disabled";
         }
+        // Re-enable requires a retained, validated startup configuration and a
+        // fresh worker epoch. Until that lifecycle is implemented, fail closed.
+        if (command == "on") return "observertrace unavailable";
         return "observertrace invalid command";
     }
     [[nodiscard]] bool ObserverTraceCaptureEnabledForTest() const noexcept { return mObserverTraceCapture->IsEnabled(); }
