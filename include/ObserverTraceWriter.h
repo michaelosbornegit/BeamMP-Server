@@ -68,6 +68,9 @@ public:
     TraceEpochFile(const std::filesystem::path& partialPath, const std::uint64_t traceStartMonoNs, const std::size_t maxPlayers, const std::size_t maxVehicles)
         : mPartialPath(partialPath), mFinalPath(FinalPath(partialPath)), mWriter(traceStartMonoNs, maxPlayers, maxVehicles) {
         if (mPartialPath.extension() != ".part") return;
+        std::error_code statusError;
+        const auto partialStatus = std::filesystem::symlink_status(mPartialPath, statusError);
+        if (std::filesystem::is_symlink(partialStatus) || (statusError && statusError != std::errc::no_such_file_or_directory)) return;
         mStream.open(mPartialPath, std::ios::out | std::ios::trunc);
         if (!mStream.is_open()) return;
         mStream << mWriter.Header() << '\n';

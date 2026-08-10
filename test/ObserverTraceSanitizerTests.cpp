@@ -134,3 +134,27 @@ TEST_CASE("observer trace epoch refuses non-partial filenames without creating a
     CHECK_FALSE(std::filesystem::exists(unsafe));
     std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("observer trace epoch refuses a partial-path symlink without modifying its target") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-symlink-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto target = directory / "unrelated.txt";
+    const auto partial = directory / "beammp-accepted-pose-test.ndjson.part";
+    {
+        std::ofstream unrelated(target);
+        unrelated << "preserve-this";
+    }
+    std::filesystem::create_symlink(target.filename(), partial);
+
+    {
+        beammp::observer::TraceEpochFile epoch(partial, 1'000'000, 2, 3);
+        CHECK_FALSE(epoch.IsOpen());
+    }
+
+    std::ifstream unrelated(target);
+    std::string contents;
+    std::getline(unrelated, contents);
+    CHECK_EQ(contents, "preserve-this");
+    CHECK(std::filesystem::is_symlink(partial));
+    std::filesystem::remove_all(directory);
+}
