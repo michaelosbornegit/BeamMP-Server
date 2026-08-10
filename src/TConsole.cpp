@@ -224,6 +224,17 @@ void TConsole::Command_Help(const std::string&, const std::vector<std::string>& 
     Application::Console().WriteRaw("BeamMP-Server Console: " + std::string(sHelpString));
 }
 
+#ifdef BEAMMP_OBSERVER_TRACE_TEST_ONLY
+std::string TConsole::DispatchObserverTraceCommandForTest(TServer& server, const std::vector<std::string>& args) noexcept {
+    if (args.size() != 1) return "observertrace invalid command";
+    return server.RunObserverTraceCommandForTest(args.front());
+}
+
+void TConsole::Command_ObserverTrace(const std::string&, const std::vector<std::string>& args) {
+    Application::Console().WriteRaw(DispatchObserverTraceCommandForTest(mLuaEngine->Server(), args));
+}
+#endif
+
 std::string TConsole::ConcatArgs(const std::vector<std::string>& args, char space) {
     std::string Result;
     for (const auto& arg : args) {

@@ -1,6 +1,7 @@
 #include "ObserverTraceCapture.h"
 #include "ObserverTraceMpscQueue.h"
 #include "Client.h"
+#include "TConsole.h"
 #include "TServer.h"
 
 #include <array>
@@ -436,4 +437,13 @@ TEST_CASE("observer runtime on command starts a fresh validated epoch after asyn
 
     server.StopObserverTraceForTest();
     std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("observer console command accepts only one approved control token") {
+    TServer server({});
+
+    CHECK_EQ(TConsole::DispatchObserverTraceCommandForTest(server, { "status" }),
+        "observertrace disabled idle accepted=0 pending=0 evicted=0 contention_drop=0");
+    CHECK_EQ(TConsole::DispatchObserverTraceCommandForTest(server, { "off", "extra" }),
+        "observertrace invalid command");
 }

@@ -30,6 +30,7 @@
 #include <vector>
 
 class TLuaEngine;
+class TServer;
 
 class TConsole {
 public:
@@ -44,6 +45,10 @@ public:
     void BackupOldLog();
     void StartLoggingToFile();
     Commandline& Internal() { return *mCommandline; }
+
+#ifdef BEAMMP_OBSERVER_TRACE_TEST_ONLY
+    [[nodiscard]] static std::string DispatchObserverTraceCommandForTest(TServer& server, const std::vector<std::string>& args) noexcept;
+#endif
 
 private:
     void RunAsCommand(const std::string& cmd, bool IgnoreNotACommand = false);
@@ -62,6 +67,9 @@ private:
     void Command_ProtectMod(const std::string& cmd, const std::vector<std::string>& args);
     void Command_ReloadMods(const std::string& cmd, const std::vector<std::string>& args);
     void Command_NetTest(const std::string& cmd, const std::vector<std::string>& args);
+#ifdef BEAMMP_OBSERVER_TRACE_TEST_ONLY
+    void Command_ObserverTrace(const std::string& cmd, const std::vector<std::string>& args);
+#endif
 
     void Command_Say(const std::string& FullCommand);
     bool EnsureArgsCount(const std::vector<std::string>& args, size_t n);
@@ -83,6 +91,9 @@ private:
         { "protectmod", [this](const auto& a, const auto& b) { Command_ProtectMod(a, b); } },
         { "reloadmods", [this](const auto& a, const auto& b) { Command_ReloadMods(a, b); } },
         { "nettest", [this](const auto& a, const auto& b) { Command_NetTest(a, b); } },
+#ifdef BEAMMP_OBSERVER_TRACE_TEST_ONLY
+        { "observertrace", [this](const auto& a, const auto& b) { Command_ObserverTrace(a, b); } },
+#endif
     };
 
     std::unique_ptr<Commandline> mCommandline { nullptr };
