@@ -483,6 +483,10 @@ public:
     [[nodiscard]] bool DrainOne() noexcept {
         RawStoredPoseV1 record {};
         if (!mCapture.TryPopForTest(record)) return false;
+        if (mFaulted) {
+            ++mDiscardedAfterFault;
+            return true;
+        }
         const auto appendResult = mLifecycle.Append(std::string_view(record.RawPose.data(), record.PayloadSize), record.PlayerId, record.VehicleId, record.AcceptedMonoNs);
         if (appendResult == TraceAppendResult::Rejected) {
             ++mParseRejected;
@@ -490,7 +494,8 @@ public:
         }
         if (appendResult == TraceAppendResult::Fault) {
             AbortForWriterFault();
-            return false;
+            ++mDiscardedAfterFault;
+            return true;
         }
         ++mWritten;
         return true;
@@ -510,8 +515,7 @@ public:
     void AbortForWriterFault() noexcept {
         mCapture.Disable();
         mLifecycle.Abort();
-        RawStoredPoseV1 discarded {};
-        while (mCapture.TryPopForTest(discarded)) ++mDiscardedAfterFault;
+        mFaulted = true;
     }
 
     [[nodiscard]] std::uint64_t DiscardedAfterFault() const noexcept { return mDiscardedAfterFault; }
@@ -522,6 +526,7 @@ private:
     std::uint64_t mWritten {};
     std::uint64_t mParseRejected {};
     std::uint64_t mDiscardedAfterFault {};
+    bool mFaulted {};
 };
 
 } // namespace beammp::observer
