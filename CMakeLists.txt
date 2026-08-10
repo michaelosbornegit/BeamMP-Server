@@ -247,7 +247,9 @@ if(${PROJECT_NAME}_ENABLE_UNIT_TESTING)
     target_compile_definitions(${PROJECT_NAME}-tests PRIVATE ${PRJ_DEFINITIONS} ${PRJ_WARNINGS})
     add_test(NAME BeamMPServerUnitTests COMMAND ${PROJECT_NAME}-tests)
     if(BEAMMP_OBSERVER_TRACE_TEST_ONLY)
-        target_compile_definitions(${PROJECT_NAME}-tests PRIVATE BEAMMP_OBSERVER_TRACE_TEST_ONLY=1)
+        # Keep deterministic interleaving seams out of the test-only server
+        # binary itself: producer code must contain no wait/retry path.
+        target_compile_definitions(${PROJECT_NAME}-tests PRIVATE BEAMMP_OBSERVER_TRACE_TEST_ONLY=1 BEAMMP_OBSERVER_TRACE_TEST_SEAMS=1)
         target_link_libraries(${PROJECT_NAME}-tests nlohmann_json::nlohmann_json)
         # Keep the CTest gate aligned with every test-build-only observer suite,
         # including worker-side sanitizer/privacy tests.

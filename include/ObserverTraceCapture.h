@@ -58,10 +58,12 @@ public:
             mActiveProducers.fetch_sub(1, std::memory_order_release);
             return false;
         }
+#ifdef BEAMMP_OBSERVER_TRACE_TEST_SEAMS
         if (mProducerAdmissionObservedForTest) {
             mProducerAdmissionObservedForTest->store(true, std::memory_order_release);
             while (!mReleaseProducerAdmissionForTest->load(std::memory_order_acquire)) {}
         }
+#endif
         if (playerId < 0 || vehicleId < 0) {
             mInvalidId.fetch_add(1, std::memory_order_relaxed);
             mActiveProducers.fetch_sub(1, std::memory_order_release);
@@ -127,10 +129,12 @@ public:
     }
     [[nodiscard]] std::size_t PendingForTest() const noexcept { return mPending.load(std::memory_order_relaxed); }
     [[nodiscard]] std::size_t ActiveProducersForTest() const noexcept { return mActiveProducers.load(std::memory_order_acquire); }
+#ifdef BEAMMP_OBSERVER_TRACE_TEST_SEAMS
     void SetProducerAdmissionGateForTest(std::atomic<bool>& observed, std::atomic<bool>& release) noexcept {
         mProducerAdmissionObservedForTest = &observed;
         mReleaseProducerAdmissionForTest = &release;
     }
+#endif
     [[nodiscard]] Metrics MetricsForTest() const noexcept {
         return {
             mSequence.load(std::memory_order_relaxed),
@@ -170,10 +174,12 @@ private:
     // Test-only accounting seam: the wrapper issues one bounded slot claim for
     // each valid producer call.
     std::atomic<std::uint64_t> mProducerQueueOperations {};
-    // Deterministic test-only interleaving seam. It is configured before any
-    // producer starts and is otherwise null, so production capture has no hook.
+#ifdef BEAMMP_OBSERVER_TRACE_TEST_SEAMS
+    // Deterministic test-only interleaving seam. This is absent from the
+    // test-only server binary; only the unit-test target can compile it.
     std::atomic<bool>* mProducerAdmissionObservedForTest {};
     std::atomic<bool>* mReleaseProducerAdmissionForTest {};
+#endif
     bool mForceNonLockFreeForTest {};
 };
 
