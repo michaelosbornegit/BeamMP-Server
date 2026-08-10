@@ -642,4 +642,63 @@ private:
     std::thread mThread;
 };
 
+// Test-only startup bridge. It is called before packet producers are admitted:
+// configuration and the dedicated directory are revalidated here, then the
+// worker owns the lifecycle while the existing capture object remains the sole
+// producer boundary. The filename argument is deliberately a basename so this
+// bridge cannot redirect output outside the configured trace directory.
+class TraceCaptureRuntime final {
+public:
+    TraceCaptureRuntime(ObserverTraceCapture& capture, TraceCaptureConfiguration configuration,
+        const std::size_t maxPlayers, const std::size_t maxVehicles) noexcept
+        : mCapture(capture), mConfiguration(std::move(configuration)), mMaxPlayers(maxPlayers), mMaxVehicles(maxVehicles) { }
+
+    ~TraceCaptureRuntime() { StopAndJoin(); }
+
+    TraceCaptureRuntime(const TraceCaptureRuntime&) = delete;
+    TraceCaptureRuntime& operator=(const TraceCaptureRuntime&) = delete;
+
+    [[nodiscard]] bool StartForTest(const std::string_view partialFilename, const std::uint64_t traceStartMonoNs) {
+        if (mWorker || !mConfiguration.Enabled || !HasDedicatedDirectory() || partialFilename.empty()) return false;
+        const std::filesystem::path filename { partialFilename };
+        if (filename.filename() != filename) return false;
+
+        const auto partialPath = mConfiguration.Directory / filename;
+        const auto maximumBytes = static_cast<std::uintmax_t>(mConfiguration.MaximumFileMiB) * 1024U * 1024U;
+        auto lifecycle = std::make_unique<TraceEpochLifecycle>(
+            TraceEpochRotationPolicy { static_cast<std::uint64_t>(mConfiguration.MaximumSeconds) * 1'000'000'000ULL, maximumBytes },
+            mMaxPlayers, mMaxVehicles, maximumBytes);
+        if (!lifecycle->Start(partialPath, traceStartMonoNs)) return false;
+
+        auto worker = std::make_unique<TraceCaptureWorkerThread>(mCapture, *lifecycle);
+        mCapture.SetEnabledForTest(true);
+        worker->Start();
+        mLifecycle = std::move(lifecycle);
+        mWorker = std::move(worker);
+        return true;
+    }
+
+    void StopAndJoin() noexcept {
+        if (!mWorker) return;
+        mWorker->StopAndJoin();
+    }
+
+    [[nodiscard]] bool Finalized() const noexcept { return mWorker && mWorker->Finalized(); }
+
+private:
+    [[nodiscard]] bool HasDedicatedDirectory() const noexcept {
+        if (mConfiguration.Directory.empty() || !mConfiguration.Directory.is_absolute()) return false;
+        std::error_code error;
+        const auto status = std::filesystem::symlink_status(mConfiguration.Directory, error);
+        return !error && std::filesystem::is_directory(status) && !std::filesystem::is_symlink(status);
+    }
+
+    ObserverTraceCapture& mCapture;
+    TraceCaptureConfiguration mConfiguration;
+    std::size_t mMaxPlayers {};
+    std::size_t mMaxVehicles {};
+    std::unique_ptr<TraceEpochLifecycle> mLifecycle;
+    std::unique_ptr<TraceCaptureWorkerThread> mWorker;
+};
+
 } // namespace beammp::observer

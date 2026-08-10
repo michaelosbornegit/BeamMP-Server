@@ -816,3 +816,30 @@ TEST_CASE("observer worker drains no more than its caller-owned batch budget") {
     lifecycle.Abort();
     std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("observer runtime starts a worker only in the validated dedicated trace directory") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-runtime-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const beammp::observer::TraceCaptureConfiguration configuration {
+        .Enabled = true,
+        .Directory = directory,
+        .MaximumSeconds = 10,
+        .MaximumFileMiB = 16,
+        .MaximumTotalMiB = 16,
+        .MaximumAgeHours = 1,
+    };
+    constexpr std::string_view partialName { "beammp-accepted-pose-runtime.ndjson.part" };
+    constexpr std::string_view raw = R"({"pos":[1,2,3],"rot":[0,0,0,1],"vel":[4,5,6],"rvel":[7,8,9]})";
+
+    beammp::observer::ObserverTraceCapture capture;
+    beammp::observer::TraceCaptureRuntime runtime(capture, configuration, 2, 3);
+
+    REQUIRE(runtime.StartForTest(partialName, 1'000'000));
+    CHECK(capture.TryCaptureStoredPose(42, 9, raw, 1'020'000));
+    runtime.StopAndJoin();
+
+    CHECK(runtime.Finalized());
+    CHECK(std::filesystem::exists(directory / "beammp-accepted-pose-runtime.ndjson"));
+    CHECK_FALSE(std::filesystem::exists(directory / partialName));
+    std::filesystem::remove_all(directory);
+}
