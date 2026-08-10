@@ -11,6 +11,7 @@
 
 #include <chrono>
 #include <atomic>
+#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
@@ -28,6 +29,42 @@
 #include "ObserverTraceSanitizer.h"
 
 namespace beammp::observer {
+
+// Configuration is parsed before the test-only worker starts. It is never read
+// by packet producers and invalid input fails closed without exposing values.
+struct TraceCaptureConfiguration final {
+    bool Enabled {};
+    std::filesystem::path Directory;
+    std::uint32_t MaximumSeconds {};
+    std::uint32_t MaximumFileMiB {};
+    std::uint32_t MaximumTotalMiB {};
+    std::uint32_t MaximumAgeHours {};
+};
+
+[[nodiscard]] inline std::optional<TraceCaptureConfiguration> ParseTraceCaptureConfigurationForTest(const std::string_view enabled,
+    const std::string_view directory, const std::string_view maximumSeconds, const std::string_view maximumFileMiB,
+    const std::string_view maximumTotalMiB, const std::string_view maximumAgeHours) {
+    if (enabled != "1" && enabled != "true") return std::nullopt;
+    const std::filesystem::path configuredDirectory { directory };
+    std::error_code error;
+    const auto status = std::filesystem::symlink_status(configuredDirectory, error);
+    if (directory.empty() || !configuredDirectory.is_absolute() || error || !std::filesystem::is_directory(status) || std::filesystem::is_symlink(status)) return std::nullopt;
+
+    const auto parseUnsigned = [](const std::string_view input) -> std::optional<std::uint32_t> {
+        std::uint32_t value {};
+        const auto [end, parseError] = std::from_chars(input.data(), input.data() + input.size(), value);
+        if (parseError != std::errc {} || end != input.data() + input.size()) return std::nullopt;
+        return value;
+    };
+    const auto seconds = parseUnsigned(maximumSeconds);
+    const auto fileMiB = parseUnsigned(maximumFileMiB);
+    const auto totalMiB = parseUnsigned(maximumTotalMiB);
+    const auto ageHours = parseUnsigned(maximumAgeHours);
+    if (!seconds || !fileMiB || !totalMiB || !ageHours || *seconds < 10 || *seconds > 900 || *fileMiB < 16 || *fileMiB > 256
+        || *totalMiB < 16 || *totalMiB > 1024 || *ageHours == 0 || *ageHours > 24) return std::nullopt;
+
+    return TraceCaptureConfiguration { true, configuredDirectory, *seconds, *fileMiB, *totalMiB, *ageHours };
+}
 
 // Offline replay receives completed sanitizer output only; it does not accept
 // or serialize raw producer payloads.

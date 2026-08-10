@@ -656,6 +656,23 @@ TEST_CASE("observer worker thread drains queued poses and finalizes only after p
     std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("observer startup configuration enables capture only for a dedicated absolute directory") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-config-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+
+    const auto configuration = beammp::observer::ParseTraceCaptureConfigurationForTest(
+        "true", directory.string(), "10", "16", "1024", "24");
+
+    REQUIRE(configuration.has_value());
+    CHECK(configuration->Enabled);
+    CHECK_EQ(configuration->Directory, directory);
+    CHECK_EQ(configuration->MaximumSeconds, 10);
+    CHECK_EQ(configuration->MaximumFileMiB, 16);
+    CHECK_EQ(configuration->MaximumTotalMiB, 1024);
+    CHECK_EQ(configuration->MaximumAgeHours, 24);
+    std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("observer worker thread waits for an admitted producer before finalizing") {
     const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-worker-inflight-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
