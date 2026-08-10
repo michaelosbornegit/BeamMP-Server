@@ -14,6 +14,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -64,6 +65,19 @@ struct TraceCaptureConfiguration final {
         || *totalMiB < 16 || *totalMiB > 1024 || *ageHours == 0 || *ageHours > 24) return std::nullopt;
 
     return TraceCaptureConfiguration { true, configuredDirectory, *seconds, *fileMiB, *totalMiB, *ageHours };
+}
+
+// Environment loading happens only during test-only startup, before the worker
+// or packet producers exist. Missing numeric limits use the reviewed defaults;
+// capture still fails closed without exact enablement and a dedicated directory.
+[[nodiscard]] inline std::optional<TraceCaptureConfiguration> LoadTraceCaptureConfigurationFromEnvironmentForTest() {
+    const auto value = [](const char* name, const std::string_view fallback = {}) -> std::string_view {
+        const char* const environmentValue = std::getenv(name);
+        return environmentValue ? std::string_view(environmentValue) : fallback;
+    };
+    return ParseTraceCaptureConfigurationForTest(value("BEAMMP_OBSERVER_TRACE_ENABLED"), value("BEAMMP_OBSERVER_TRACE_DIR"),
+        value("BEAMMP_OBSERVER_TRACE_MAX_SECONDS", "900"), value("BEAMMP_OBSERVER_TRACE_MAX_FILE_MIB", "256"),
+        value("BEAMMP_OBSERVER_TRACE_MAX_TOTAL_MIB", "1024"), value("BEAMMP_OBSERVER_TRACE_MAX_AGE_HOURS", "24"));
 }
 
 // Offline replay receives completed sanitizer output only; it does not accept

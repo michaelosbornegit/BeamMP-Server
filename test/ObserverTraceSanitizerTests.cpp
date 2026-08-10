@@ -673,6 +673,34 @@ TEST_CASE("observer startup configuration enables capture only for a dedicated a
     std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("observer startup configuration loads only a complete valid environment") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-config-env-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    REQUIRE(::setenv("BEAMMP_OBSERVER_TRACE_ENABLED", "true", 1) == 0);
+    REQUIRE(::setenv("BEAMMP_OBSERVER_TRACE_DIR", directory.c_str(), 1) == 0);
+    REQUIRE(::setenv("BEAMMP_OBSERVER_TRACE_MAX_SECONDS", "10", 1) == 0);
+    REQUIRE(::setenv("BEAMMP_OBSERVER_TRACE_MAX_FILE_MIB", "16", 1) == 0);
+    REQUIRE(::setenv("BEAMMP_OBSERVER_TRACE_MAX_TOTAL_MIB", "1024", 1) == 0);
+    REQUIRE(::setenv("BEAMMP_OBSERVER_TRACE_MAX_AGE_HOURS", "24", 1) == 0);
+
+    const auto configuration = beammp::observer::LoadTraceCaptureConfigurationFromEnvironmentForTest();
+
+    REQUIRE(configuration.has_value());
+    CHECK(configuration->Enabled);
+    CHECK_EQ(configuration->Directory, directory);
+    CHECK_EQ(configuration->MaximumSeconds, 10);
+    CHECK_EQ(configuration->MaximumFileMiB, 16);
+    CHECK_EQ(configuration->MaximumTotalMiB, 1024);
+    CHECK_EQ(configuration->MaximumAgeHours, 24);
+    CHECK(::unsetenv("BEAMMP_OBSERVER_TRACE_ENABLED") == 0);
+    CHECK(::unsetenv("BEAMMP_OBSERVER_TRACE_DIR") == 0);
+    CHECK(::unsetenv("BEAMMP_OBSERVER_TRACE_MAX_SECONDS") == 0);
+    CHECK(::unsetenv("BEAMMP_OBSERVER_TRACE_MAX_FILE_MIB") == 0);
+    CHECK(::unsetenv("BEAMMP_OBSERVER_TRACE_MAX_TOTAL_MIB") == 0);
+    CHECK(::unsetenv("BEAMMP_OBSERVER_TRACE_MAX_AGE_HOURS") == 0);
+    std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("observer worker thread waits for an admitted producer before finalizing") {
     const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-worker-inflight-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
