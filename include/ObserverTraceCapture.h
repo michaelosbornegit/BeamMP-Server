@@ -51,16 +51,30 @@ public:
         if (!mEnabled.load(std::memory_order_acquire)) {
             return false;
         }
+        // Shutdown needs to distinguish an empty queue from a producer that
+        // already passed the enabled check but has not published its record.
+        mActiveProducers.fetch_add(1, std::memory_order_acq_rel);
+        if (!mEnabled.load(std::memory_order_acquire)) {
+            mActiveProducers.fetch_sub(1, std::memory_order_release);
+            return false;
+        }
+        if (mProducerAdmissionObservedForTest) {
+            mProducerAdmissionObservedForTest->store(true, std::memory_order_release);
+            while (!mReleaseProducerAdmissionForTest->load(std::memory_order_acquire)) {}
+        }
         if (playerId < 0 || vehicleId < 0) {
             mInvalidId.fetch_add(1, std::memory_order_relaxed);
+            mActiveProducers.fetch_sub(1, std::memory_order_release);
             return false;
         }
         if (rawPose.empty()) {
             mInvalidPayload.fetch_add(1, std::memory_order_relaxed);
+            mActiveProducers.fetch_sub(1, std::memory_order_release);
             return false;
         }
         if (rawPose.size() > kRawPoseCapacity) {
             mOversize.fetch_add(1, std::memory_order_relaxed);
+            mActiveProducers.fetch_sub(1, std::memory_order_release);
             return false;
         }
 
@@ -79,6 +93,7 @@ public:
         const auto result = mQueue.TryPush(record);
         if (result == QueuePushResult::Inserted) {
             mAccepted.fetch_add(1, std::memory_order_relaxed);
+            mActiveProducers.fetch_sub(1, std::memory_order_release);
             return true;
         }
         if (result == QueuePushResult::Evicted) {
@@ -87,10 +102,12 @@ public:
             mPending.fetch_sub(1, std::memory_order_relaxed);
             mEvictedOldest.fetch_add(1, std::memory_order_relaxed);
             mAccepted.fetch_add(1, std::memory_order_relaxed);
+            mActiveProducers.fetch_sub(1, std::memory_order_release);
             return true;
         }
         mPending.fetch_sub(1, std::memory_order_relaxed);
         mContentionDrop.fetch_add(1, std::memory_order_relaxed);
+        mActiveProducers.fetch_sub(1, std::memory_order_release);
         return false;
     }
 
@@ -105,6 +122,11 @@ public:
         return true;
     }
     [[nodiscard]] std::size_t PendingForTest() const noexcept { return mPending.load(std::memory_order_relaxed); }
+    [[nodiscard]] std::size_t ActiveProducersForTest() const noexcept { return mActiveProducers.load(std::memory_order_acquire); }
+    void SetProducerAdmissionGateForTest(std::atomic<bool>& observed, std::atomic<bool>& release) noexcept {
+        mProducerAdmissionObservedForTest = &observed;
+        mReleaseProducerAdmissionForTest = &release;
+    }
     [[nodiscard]] Metrics MetricsForTest() const noexcept {
         return {
             mSequence.load(std::memory_order_relaxed),
@@ -116,7 +138,7 @@ public:
         };
     }
     [[nodiscard]] bool ProducerAtomicsAreLockFreeForTest() const noexcept {
-        return mEnabled.is_lock_free() && mSequence.is_lock_free() && mInvalidId.is_lock_free() && mInvalidPayload.is_lock_free() && mOversize.is_lock_free() && mAccepted.is_lock_free() && mPending.is_lock_free() && mEvictedOldest.is_lock_free() && mContentionDrop.is_lock_free() && mDequeued.is_lock_free() && mProducerQueueOperations.is_lock_free();
+        return mEnabled.is_lock_free() && mActiveProducers.is_lock_free() && mSequence.is_lock_free() && mInvalidId.is_lock_free() && mInvalidPayload.is_lock_free() && mOversize.is_lock_free() && mAccepted.is_lock_free() && mPending.is_lock_free() && mEvictedOldest.is_lock_free() && mContentionDrop.is_lock_free() && mDequeued.is_lock_free() && mProducerQueueOperations.is_lock_free();
     }
     [[nodiscard]] bool IsLockFree() const noexcept { return mQueue.IsLockFree() && ProducerAtomicsAreLockFreeForTest(); }
     [[nodiscard]] std::uint64_t InvalidIds() const noexcept { return mInvalidId.load(std::memory_order_relaxed); }
@@ -131,6 +153,7 @@ public:
 private:
     FixedMpscLatestQueue<RawStoredPoseV1, kQueueCapacity> mQueue {};
     std::atomic<bool> mEnabled { false };
+    std::atomic<std::size_t> mActiveProducers {};
     std::atomic<std::uint64_t> mSequence {};
     std::atomic<std::uint64_t> mInvalidId {};
     std::atomic<std::uint64_t> mInvalidPayload {};
@@ -143,6 +166,10 @@ private:
     // Test-only accounting seam: the wrapper issues one bounded slot claim for
     // each valid producer call.
     std::atomic<std::uint64_t> mProducerQueueOperations {};
+    // Deterministic test-only interleaving seam. It is configured before any
+    // producer starts and is otherwise null, so production capture has no hook.
+    std::atomic<bool>* mProducerAdmissionObservedForTest {};
+    std::atomic<bool>* mReleaseProducerAdmissionForTest {};
 };
 
 } // namespace beammp::observer

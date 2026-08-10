@@ -10,6 +10,7 @@
 #pragma once
 
 #include <chrono>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
@@ -19,6 +20,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include "../observer/AcceptedPoseFeed.h"
@@ -527,6 +529,66 @@ private:
     std::uint64_t mParseRejected {};
     std::uint64_t mDiscardedAfterFault {};
     bool mFaulted {};
+};
+
+// Test-build worker lifecycle. It owns polling and all file finalization; packet
+// producers only ever call ObserverTraceCapture::TryCaptureStoredPose. Stopping
+// first closes producer admission, then drains the already-queued fixed records
+// before finalizing the active epoch on this non-producer thread.
+class TraceCaptureWorkerThread final {
+public:
+    TraceCaptureWorkerThread(ObserverTraceCapture& capture, TraceEpochLifecycle& lifecycle) noexcept
+        : mCapture(capture), mLifecycle(lifecycle), mWorker(capture, lifecycle) { }
+
+    ~TraceCaptureWorkerThread() { StopAndJoin(); }
+
+    TraceCaptureWorkerThread(const TraceCaptureWorkerThread&) = delete;
+    TraceCaptureWorkerThread& operator=(const TraceCaptureWorkerThread&) = delete;
+
+    void Start() {
+        if (mThread.joinable()) return;
+        mStopRequested.store(false, std::memory_order_release);
+        mThread = std::thread([this] { Run(); });
+    }
+
+    // This may wait for worker-owned file finalization, but it never waits on a
+    // UDP/TCP producer and producer admission was disabled before the join.
+    void StopAndJoin() noexcept {
+        mCapture.Disable();
+        mStopRequested.store(true, std::memory_order_release);
+        if (mThread.joinable()) mThread.join();
+    }
+
+    [[nodiscard]] std::uint64_t Written() const noexcept { return mWorker.Written(); }
+    [[nodiscard]] bool Finalized() const noexcept { return mFinalized.load(std::memory_order_acquire); }
+
+private:
+    static constexpr std::size_t kDrainBatchSize = 64;
+
+    void Run() noexcept {
+        for (;;) {
+            const auto drained = mWorker.DrainAtMost(kDrainBatchSize);
+            if (mStopRequested.load(std::memory_order_acquire) && mCapture.PendingForTest() == 0
+                && mCapture.ActiveProducersForTest() == 0) break;
+            if (drained == 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        const auto metrics = mCapture.MetricsForTest();
+        mFinalized.store(mLifecycle.Finalize({
+            .Accepted = metrics.QueuedSuccesses,
+            .Written = mWorker.Written(),
+            .ParseRejected = mWorker.ParseRejected(),
+            .EvictedOldest = metrics.EvictedOldest,
+            .ContentionDrops = metrics.ContentionDrops,
+        }), std::memory_order_release);
+    }
+
+    ObserverTraceCapture& mCapture;
+    TraceEpochLifecycle& mLifecycle;
+    TraceCaptureWorker mWorker;
+    std::atomic<bool> mStopRequested { false };
+    std::atomic<bool> mFinalized { false };
+    std::thread mThread;
 };
 
 } // namespace beammp::observer
