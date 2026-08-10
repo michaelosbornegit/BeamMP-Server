@@ -68,6 +68,26 @@ public:
         return mNextTicket.is_lock_free() && mSlots.front().State.is_lock_free();
     }
 
+    // Deterministic collision seam for the observer's isolated queue test. It
+    // holds the next producer slot in Writing state without advancing its
+    // ticket, so the next real TryPush must take the bounded contention-drop
+    // path. It is configured and released by the test thread only.
+    [[nodiscard]] bool HoldNextSlotForTest() noexcept {
+        if (mHasHeldSlotForTest) return false;
+        const auto index = static_cast<std::size_t>(mNextTicket.load(std::memory_order_relaxed) % Capacity);
+        auto expected = SlotState::Empty;
+        if (!mSlots[index].State.compare_exchange_strong(expected, SlotState::Writing, std::memory_order_acquire, std::memory_order_relaxed)) return false;
+        mHeldSlotForTest = index;
+        mHasHeldSlotForTest = true;
+        return true;
+    }
+
+    void ReleaseHeldSlotForTest() noexcept {
+        if (!mHasHeldSlotForTest) return;
+        mSlots[mHeldSlotForTest].State.store(SlotState::Empty, std::memory_order_release);
+        mHasHeldSlotForTest = false;
+    }
+
 private:
     enum class SlotState : std::uint8_t {
         Empty,
@@ -85,6 +105,9 @@ private:
     std::atomic<std::uint64_t> mNextTicket {};
     // Single worker-owned state; producers do not read or modify it.
     std::uint64_t mConsumerCursor {};
+    // Test-thread-only state for the deterministic collision seam above.
+    std::size_t mHeldSlotForTest {};
+    bool mHasHeldSlotForTest {};
 };
 
 } // namespace beammp::observer

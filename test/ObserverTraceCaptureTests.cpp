@@ -44,6 +44,19 @@ TEST_CASE("observer fixed MPSC queue overwrites an occupied cyclic slot without 
     CHECK(queue.IsLockFree());
 }
 
+TEST_CASE("observer fixed MPSC queue records a deterministic producer collision without overwriting a writing slot") {
+    beammp::observer::FixedMpscLatestQueue<int, 4> queue;
+
+    REQUIRE(queue.HoldNextSlotForTest());
+    CHECK_EQ(queue.TryPush(42), beammp::observer::QueuePushResult::ContentionDrop);
+    queue.ReleaseHeldSlotForTest();
+    CHECK_EQ(queue.TryPush(42), beammp::observer::QueuePushResult::Inserted);
+
+    int value {};
+    REQUIRE(queue.TryPop(value));
+    CHECK_EQ(value, 42);
+}
+
 TEST_CASE("observer trace capture is runtime disabled by default") {
     beammp::observer::ObserverTraceCapture capture;
     std::array<char, 1025> payload {};
