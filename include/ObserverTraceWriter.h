@@ -605,8 +605,13 @@ public:
 
     // This may wait for worker-owned file finalization, but it never waits on a
     // UDP/TCP producer and producer admission was disabled before the join.
-    void StopAndJoin() noexcept {
+    // The worker observes this deadline before finalizing; if it has expired it
+    // preserves the active .part rather than producing a complete-looking file.
+    void StopAndJoin(const std::chrono::milliseconds deadline = std::chrono::seconds(5)) noexcept {
         mCapture.Disable();
+        const auto now = std::chrono::steady_clock::now().time_since_epoch();
+        const auto deadlineNs = std::chrono::duration_cast<std::chrono::nanoseconds>(now + deadline).count();
+        mShutdownDeadlineNs.store(static_cast<std::uint64_t>(deadlineNs), std::memory_order_release);
         mStopRequested.store(true, std::memory_order_release);
         if (mThread.joinable()) mThread.join();
     }
@@ -614,6 +619,9 @@ public:
     // Test-only writer-fault injection is observed by the worker thread. The
     // caller never touches worker-owned lifecycle or serializer state.
     void RequestWriterFaultForTest() noexcept { mWriterFaultRequested.store(true, std::memory_order_release); }
+    void DelayFinalizationForTest(const std::chrono::milliseconds delay) noexcept {
+        mFinalizationDelayMs.store(static_cast<std::uint64_t>(delay.count()), std::memory_order_release);
+    }
 
     [[nodiscard]] std::uint64_t Written() const noexcept { return mWorker.Written(); }
     [[nodiscard]] bool Finalized() const noexcept { return mFinalized.load(std::memory_order_acquire); }
@@ -635,6 +643,28 @@ private:
             if (drained == 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
 
+        const auto shutdownDeadlineNs = mShutdownDeadlineNs.load(std::memory_order_acquire);
+        const auto deadlineExceeded = [shutdownDeadlineNs] {
+            const auto nowNs = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            return static_cast<std::uint64_t>(nowNs) > shutdownDeadlineNs;
+        };
+        const auto abortForDeadline = [this] {
+            mLifecycle.Abort();
+            mFinalized.store(false, std::memory_order_release);
+        };
+        const auto finalizationDelay = mFinalizationDelayMs.load(std::memory_order_acquire);
+        const auto finalizationEnd = std::chrono::steady_clock::now() + std::chrono::milliseconds(finalizationDelay);
+        while (std::chrono::steady_clock::now() < finalizationEnd) {
+            if (deadlineExceeded()) {
+                abortForDeadline();
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        if (deadlineExceeded()) {
+            abortForDeadline();
+            return;
+        }
         const auto metrics = mCapture.MetricsForTest();
         mFinalized.store(mLifecycle.Finalize({
             .Accepted = metrics.QueuedSuccesses,
@@ -652,6 +682,8 @@ private:
     std::atomic<bool> mWriterFaultRequested { false };
     std::atomic<bool> mFinalized { false };
     std::atomic<bool> mFaulted { false };
+    std::atomic<std::uint64_t> mShutdownDeadlineNs { std::numeric_limits<std::uint64_t>::max() };
+    std::atomic<std::uint64_t> mFinalizationDelayMs { 0 };
     std::thread mThread;
 };
 
@@ -692,9 +724,9 @@ public:
         return true;
     }
 
-    void StopAndJoin() noexcept {
+    void StopAndJoin(const std::chrono::milliseconds deadline = std::chrono::seconds(5)) noexcept {
         if (!mWorker) return;
-        mWorker->StopAndJoin();
+        mWorker->StopAndJoin(deadline);
         mFinalized = mWorker->Finalized();
         mWorker.reset();
         mLifecycle.reset();
@@ -710,6 +742,10 @@ public:
 
     void RequestWriterFaultForTest() noexcept {
         if (mWorker) mWorker->RequestWriterFaultForTest();
+    }
+
+    void DelayFinalizationForTest(const std::chrono::milliseconds delay) noexcept {
+        if (mWorker) mWorker->DelayFinalizationForTest(delay);
     }
 
 private:

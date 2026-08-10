@@ -471,6 +471,33 @@ TEST_CASE("observer shutdown boundary stops an active worker idempotently") {
     std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("observer shutdown deadline preserves an unfinished partial trace") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-server-shutdown-deadline-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const beammp::observer::TraceCaptureConfiguration configuration {
+        .Enabled = true,
+        .Directory = directory,
+        .MaximumSeconds = 10,
+        .MaximumFileMiB = 16,
+        .MaximumTotalMiB = 16,
+        .MaximumAgeHours = 1,
+    };
+
+    TServer server({});
+    REQUIRE(server.StartObserverTraceForTest(configuration, "beammp-accepted-pose-shutdown-deadline.ndjson.part", 1'000'000));
+    server.DelayObserverTraceFinalizationForTest(std::chrono::milliseconds(20));
+    const auto started = std::chrono::steady_clock::now();
+    server.ShutdownObserverTraceForTest(std::chrono::milliseconds(1));
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    CHECK_LT(elapsed, std::chrono::milliseconds(15));
+    CHECK_FALSE(server.ObserverTraceRunningForTest());
+    CHECK_FALSE(server.ObserverTraceFinalizedForTest());
+    CHECK(std::filesystem::exists(directory / "beammp-accepted-pose-shutdown-deadline.ndjson.part"));
+    CHECK_FALSE(std::filesystem::exists(directory / "beammp-accepted-pose-shutdown-deadline.ndjson"));
+    std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("observer runtime refuses re-enable after a writer fault") {
     const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-server-fault-latch-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);

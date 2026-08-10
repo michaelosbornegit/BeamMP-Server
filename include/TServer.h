@@ -68,6 +68,9 @@ public:
     void ForceObserverTraceWriterFaultForTest() noexcept {
         if (mObserverTraceRuntime) mObserverTraceRuntime->RequestWriterFaultForTest();
     }
+    void DelayObserverTraceFinalizationForTest(const std::chrono::milliseconds delay) noexcept {
+        if (mObserverTraceRuntime) mObserverTraceRuntime->DelayFinalizationForTest(delay);
+    }
     [[nodiscard]] bool TryPopObserverTraceForTest(beammp::observer::RawStoredPoseV1& output) noexcept { return mObserverTraceCapture->TryPopForTest(output); }
     [[nodiscard]] bool HandleObserverTracePoseForTest(const std::int32_t playerId, const std::int32_t vehicleId, const std::string_view pose, const std::uint64_t acceptedMonoNs) noexcept {
         return mObserverTraceCapture->TryCaptureStoredPose(playerId, vehicleId, pose, acceptedMonoNs);
@@ -88,9 +91,9 @@ public:
     // Called by the application shutdown handler while this server remains
     // alive. It disables packet producers before joining the worker and is
     // safe if explicit runtime control already stopped the trace.
-    void ShutdownObserverTraceForTest() noexcept {
+    void ShutdownObserverTraceForTest(const std::chrono::milliseconds deadline = std::chrono::seconds(5)) noexcept {
         if (!mObserverTraceRuntime) return;
-        mObserverTraceRuntime->StopAndJoin();
+        mObserverTraceRuntime->StopAndJoin(deadline);
         mObserverTraceFinalized = mObserverTraceRuntime->Finalized();
         mObserverTraceRuntime.reset();
     }
