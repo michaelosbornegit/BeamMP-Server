@@ -249,3 +249,37 @@ TEST_CASE("observer retention deletes only aged finalized trace files and refuse
     CHECK_EQ(contents, "preserve");
     std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("observer retention trims only the oldest finalized traces to the total-size budget") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-total-retention-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto oldestTrace = directory / "beammp-accepted-pose-oldest.ndjson";
+    const auto middleTrace = directory / "beammp-accepted-pose-middle.ndjson";
+    const auto newestTrace = directory / "beammp-accepted-pose-newest.ndjson";
+    const auto unrelated = directory / "unrelated.ndjson";
+    const auto protectedTarget = directory / "protected.txt";
+    const auto traceSymlink = directory / "beammp-accepted-pose-link.ndjson";
+    std::ofstream(oldestTrace) << "1111";
+    std::ofstream(middleTrace) << "2222";
+    std::ofstream(newestTrace) << "3333";
+    std::ofstream(unrelated) << "4444";
+    std::ofstream(protectedTarget) << "preserve";
+    std::filesystem::create_symlink(protectedTarget.filename(), traceSymlink);
+
+    const auto now = std::filesystem::file_time_type::clock::now();
+    std::filesystem::last_write_time(oldestTrace, now - std::chrono::hours(3));
+    std::filesystem::last_write_time(middleTrace, now - std::chrono::hours(2));
+    std::filesystem::last_write_time(newestTrace, now - std::chrono::hours(1));
+
+    CHECK_EQ(beammp::observer::TraceRetention::TrimFinalizedToTotalBytes(directory, 8), 1);
+    CHECK_FALSE(std::filesystem::exists(oldestTrace));
+    CHECK(std::filesystem::exists(middleTrace));
+    CHECK(std::filesystem::exists(newestTrace));
+    CHECK(std::filesystem::exists(unrelated));
+    CHECK(std::filesystem::is_symlink(traceSymlink));
+    std::ifstream target(protectedTarget);
+    std::string contents;
+    std::getline(target, contents);
+    CHECK_EQ(contents, "preserve");
+    std::filesystem::remove_all(directory);
+}

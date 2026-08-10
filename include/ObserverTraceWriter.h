@@ -9,6 +9,7 @@
 // Test-build-only worker-side record serializer. Never call from packet producers.
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <filesystem>
@@ -16,6 +17,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "ObserverTraceCapture.h"
 #include "ObserverTraceSanitizer.h"
@@ -89,6 +91,59 @@ public:
             }
             error.clear();
             iterator.increment(error);
+        }
+        return deleted;
+    }
+
+    // Enforce the total finalized-trace quota by removing oldest matching regular
+    // files first. Unrelated entries and all symlinks remain outside this scope.
+    [[nodiscard]] static std::size_t TrimFinalizedToTotalBytes(const std::filesystem::path& directory, const std::uintmax_t maximumBytes) {
+        std::error_code error;
+        const auto absoluteDirectory = std::filesystem::absolute(directory, error).lexically_normal();
+        if (error) return 0;
+        const auto resolvedDirectory = std::filesystem::weakly_canonical(directory, error);
+        if (error || resolvedDirectory != absoluteDirectory) return 0;
+        const auto directoryStatus = std::filesystem::symlink_status(directory, error);
+        if (error || !std::filesystem::is_directory(directoryStatus) || std::filesystem::is_symlink(directoryStatus)) return 0;
+
+        struct Candidate final {
+            std::filesystem::path Path;
+            std::filesystem::file_time_type Modified;
+            std::uintmax_t Size;
+        };
+        std::vector<Candidate> candidates;
+        std::uintmax_t totalBytes {};
+        std::filesystem::directory_iterator iterator(directory, error);
+        const std::filesystem::directory_iterator end;
+        while (!error && iterator != end) {
+            const auto path = iterator->path();
+            const auto filename = path.filename().string();
+            const auto status = std::filesystem::symlink_status(path, error);
+            if (!error && std::filesystem::is_regular_file(status) && !std::filesystem::is_symlink(status)
+                && filename.starts_with("beammp-accepted-pose-") && path.extension() == ".ndjson") {
+                const auto size = std::filesystem::file_size(path, error);
+                const auto modified = std::filesystem::last_write_time(path, error);
+                if (!error) {
+                    candidates.push_back({ path, modified, size });
+                    totalBytes += size;
+                }
+            }
+            error.clear();
+            iterator.increment(error);
+        }
+        if (error || totalBytes <= maximumBytes) return 0;
+
+        std::sort(candidates.begin(), candidates.end(), [](const Candidate& left, const Candidate& right) {
+            return left.Modified == right.Modified ? left.Path < right.Path : left.Modified < right.Modified;
+        });
+        std::size_t deleted {};
+        for (const auto& candidate : candidates) {
+            if (totalBytes <= maximumBytes) break;
+            if (std::filesystem::remove(candidate.Path, error)) {
+                totalBytes -= candidate.Size;
+                ++deleted;
+            }
+            error.clear();
         }
         return deleted;
     }
