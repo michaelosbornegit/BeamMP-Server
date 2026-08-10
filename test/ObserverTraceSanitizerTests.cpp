@@ -60,3 +60,31 @@ TEST_CASE("observer trace writer emits a privacy-minimized epoch header") {
     CHECK_FALSE(header.contains("vehicle"));
     CHECK_FALSE(header.contains("path"));
 }
+
+TEST_CASE("observer trace writer footer contains only aggregate lifecycle evidence") {
+    beammp::observer::TraceRecordWriter writer(1'000'000, 2, 3);
+
+    const auto footer = nlohmann::json::parse(writer.Footer({
+        .Accepted = 12,
+        .Written = 9,
+        .ParseRejected = 2,
+        .Oversize = 1,
+        .EvictedOldest = 3,
+        .ContentionDrops = 4,
+        .DurationUs = 20'000,
+    }));
+
+    CHECK_EQ(footer["footer"], "beammp.accepted-pose/v1");
+    CHECK_EQ(footer["accepted"], 12);
+    CHECK_EQ(footer["written"], 9);
+    CHECK_EQ(footer["parse_rejected"], 2);
+    CHECK_EQ(footer["oversize"], 1);
+    CHECK_EQ(footer["evicted_oldest"], 3);
+    CHECK_EQ(footer["contention_drops"], 4);
+    CHECK_EQ(footer["duration_us"], 20'000);
+    CHECK_EQ(footer.size(), 8);
+    CHECK_FALSE(footer.contains("player"));
+    CHECK_FALSE(footer.contains("vehicle"));
+    CHECK_FALSE(footer.contains("path"));
+    CHECK_FALSE(footer.contains("error"));
+}
