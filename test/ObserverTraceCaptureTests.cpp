@@ -282,3 +282,28 @@ TEST_CASE("observer server runtime starts and stops capture through the test-onl
     CHECK(std::filesystem::exists(directory / "beammp-accepted-pose-server.ndjson"));
     std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("observer server runtime starts a fresh trace epoch after stop") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-server-restart-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const beammp::observer::TraceCaptureConfiguration configuration {
+        .Enabled = true,
+        .Directory = directory,
+        .MaximumSeconds = 10,
+        .MaximumFileMiB = 16,
+        .MaximumTotalMiB = 16,
+        .MaximumAgeHours = 1,
+    };
+
+    TServer server({});
+    REQUIRE(server.StartObserverTraceForTest(configuration, "beammp-accepted-pose-first.ndjson.part", 1'000'000));
+    server.StopObserverTraceForTest();
+    CHECK(server.ObserverTraceFinalizedForTest());
+
+    REQUIRE(server.StartObserverTraceForTest(configuration, "beammp-accepted-pose-second.ndjson.part", 2'000'000));
+    server.StopObserverTraceForTest();
+    CHECK(server.ObserverTraceFinalizedForTest());
+    CHECK(std::filesystem::exists(directory / "beammp-accepted-pose-first.ndjson"));
+    CHECK(std::filesystem::exists(directory / "beammp-accepted-pose-second.ndjson"));
+    std::filesystem::remove_all(directory);
+}

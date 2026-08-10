@@ -69,10 +69,16 @@ public:
         auto runtime = std::make_unique<beammp::observer::TraceCaptureRuntime>(*mObserverTraceCapture, std::move(configuration), 256, 4096);
         if (!runtime->StartForTest(partialFilename, traceStartMonoNs)) return false;
         mObserverTraceRuntime = std::move(runtime);
+        mObserverTraceFinalized = false;
         return true;
     }
-    void StopObserverTraceForTest() noexcept { if (mObserverTraceRuntime) mObserverTraceRuntime->StopAndJoin(); }
-    [[nodiscard]] bool ObserverTraceFinalizedForTest() const noexcept { return mObserverTraceRuntime && mObserverTraceRuntime->Finalized(); }
+    void StopObserverTraceForTest() noexcept {
+        if (!mObserverTraceRuntime) return;
+        mObserverTraceRuntime->StopAndJoin();
+        mObserverTraceFinalized = mObserverTraceRuntime->Finalized();
+        mObserverTraceRuntime.reset();
+    }
+    [[nodiscard]] bool ObserverTraceFinalizedForTest() const noexcept { return mObserverTraceFinalized; }
 #endif
 
 private:
@@ -82,6 +88,7 @@ private:
     // and never allocate from a packet producer.
     std::unique_ptr<beammp::observer::ObserverTraceCapture> mObserverTraceCapture;
     std::unique_ptr<beammp::observer::TraceCaptureRuntime> mObserverTraceRuntime;
+    bool mObserverTraceFinalized {};
 #endif
     TClientSet mClients;
     mutable RWMutex mClientsMutex;
