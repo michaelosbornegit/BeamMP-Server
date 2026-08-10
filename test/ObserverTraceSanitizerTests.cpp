@@ -123,6 +123,29 @@ TEST_CASE("observer trace epoch remains partial until the privacy-safe footer is
     std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("observer trace epoch refuses to overwrite an existing finalized trace") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-no-overwrite-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto partial = directory / "beammp-accepted-pose-test.ndjson.part";
+    const auto finalized = directory / "beammp-accepted-pose-test.ndjson";
+    {
+        std::ofstream existing(finalized);
+        existing << "preserve-finalized-trace";
+    }
+
+    {
+        beammp::observer::TraceEpochFile epoch(partial, 1'000'000, 2, 3);
+        CHECK_FALSE(epoch.IsOpen());
+    }
+
+    std::ifstream existing(finalized);
+    std::string contents;
+    std::getline(existing, contents);
+    CHECK_EQ(contents, "preserve-finalized-trace");
+    CHECK_FALSE(std::filesystem::exists(partial));
+    std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("observer trace epoch creates partial and finalized traces owner-readable only") {
     const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-modes-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);

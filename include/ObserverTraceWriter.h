@@ -102,6 +102,12 @@ public:
         : mPartialPath(partialPath), mFinalPath(FinalPath(partialPath)), mWriter(traceStartMonoNs, maxPlayers, maxVehicles) {
         if (mPartialPath.extension() != ".part" || !HasSafeParentDirectory(mPartialPath)) return;
         std::error_code statusError;
+        const auto finalStatus = std::filesystem::symlink_status(mFinalPath, statusError);
+        // A final trace is immutable evidence: never open a matching partial
+        // when finalization could replace an existing file.
+        if (std::filesystem::exists(finalStatus) || std::filesystem::is_symlink(finalStatus)
+            || (statusError && statusError != std::errc::no_such_file_or_directory)) return;
+        statusError.clear();
         const auto partialStatus = std::filesystem::symlink_status(mPartialPath, statusError);
         if (std::filesystem::is_symlink(partialStatus) || (statusError && statusError != std::errc::no_such_file_or_directory)) return;
         mStream.open(mPartialPath, std::ios::out | std::ios::trunc);
