@@ -180,6 +180,27 @@ TEST_CASE("observer trace epoch refuses non-partial filenames without creating a
     std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("observer trace epoch refuses an existing partial trace without destroying recovery evidence") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-existing-partial-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto partial = directory / "beammp-accepted-pose-test.ndjson.part";
+    {
+        std::ofstream existing(partial);
+        existing << "preserve-partial-recovery-evidence";
+    }
+
+    {
+        beammp::observer::TraceEpochFile epoch(partial, 1'000'000, 2, 3);
+        CHECK_FALSE(epoch.IsOpen());
+    }
+
+    std::ifstream existing(partial);
+    std::string contents;
+    std::getline(existing, contents);
+    CHECK_EQ(contents, "preserve-partial-recovery-evidence");
+    std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("observer trace epoch refuses a partial-path symlink without modifying its target") {
     const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-symlink-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);

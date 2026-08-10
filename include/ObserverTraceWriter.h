@@ -164,7 +164,10 @@ public:
             || (statusError && statusError != std::errc::no_such_file_or_directory)) return;
         statusError.clear();
         const auto partialStatus = std::filesystem::symlink_status(mPartialPath, statusError);
-        if (std::filesystem::is_symlink(partialStatus) || (statusError && statusError != std::errc::no_such_file_or_directory)) return;
+        // A leftover partial is recovery evidence, not a reusable output path.
+        // Refuse it rather than truncating a prior incomplete trace at startup.
+        if (std::filesystem::exists(partialStatus) || std::filesystem::is_symlink(partialStatus)
+            || (statusError && statusError != std::errc::no_such_file_or_directory)) return;
         mStream.open(mPartialPath, std::ios::out | std::ios::trunc);
         if (!mStream.is_open()) return;
         std::error_code permissionError;
