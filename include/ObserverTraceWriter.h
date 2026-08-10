@@ -87,7 +87,7 @@ public:
             const auto filename = path.filename().string();
             const auto status = std::filesystem::symlink_status(path, error);
             if (!error && std::filesystem::is_regular_file(status) && !std::filesystem::is_symlink(status)
-                && filename.starts_with("beammp-accepted-pose-") && path.extension() == ".ndjson") {
+                && HasObserverFinalName(filename)) {
                 const auto modified = std::filesystem::last_write_time(path, error);
                 if (!error && modified < cutoff && std::filesystem::remove(path, error)) ++deleted;
             }
@@ -122,7 +122,7 @@ public:
             const auto filename = path.filename().string();
             const auto status = std::filesystem::symlink_status(path, error);
             if (!error && std::filesystem::is_regular_file(status) && !std::filesystem::is_symlink(status)
-                && filename.starts_with("beammp-accepted-pose-") && path.extension() == ".ndjson") {
+                && HasObserverFinalName(filename)) {
                 const auto size = std::filesystem::file_size(path, error);
                 const auto modified = std::filesystem::last_write_time(path, error);
                 if (!error) {
@@ -148,6 +148,13 @@ public:
             error.clear();
         }
         return deleted;
+    }
+
+private:
+    [[nodiscard]] static bool HasObserverFinalName(const std::string_view filename) {
+        constexpr std::string_view prefix { "beammp-accepted-pose-" };
+        constexpr std::string_view suffix { ".ndjson" };
+        return filename.starts_with(prefix) && filename.ends_with(suffix) && filename.size() > prefix.size() + suffix.size();
     }
 };
 

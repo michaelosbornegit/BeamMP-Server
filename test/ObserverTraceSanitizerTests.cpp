@@ -338,6 +338,23 @@ TEST_CASE("observer retention deletes only aged finalized trace files and refuse
     std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("observer retention refuses an empty observer trace basename") {
+    const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-empty-basename-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto malformedTrace = directory / "beammp-accepted-pose-.ndjson";
+    std::ofstream(malformedTrace) << "preserve";
+    const auto now = std::filesystem::file_time_type::clock::now();
+    std::filesystem::last_write_time(malformedTrace, now - std::chrono::hours(2));
+
+    CHECK_EQ(beammp::observer::TraceRetention::DeleteFinalizedOlderThan(directory, now - std::chrono::hours(1)), 0);
+    CHECK(std::filesystem::exists(malformedTrace));
+    std::ifstream trace(malformedTrace);
+    std::string contents;
+    std::getline(trace, contents);
+    CHECK_EQ(contents, "preserve");
+    std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("observer retention trims only the oldest finalized traces to the total-size budget") {
     const auto directory = std::filesystem::temp_directory_path() / ("beammp-observer-total-retention-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
